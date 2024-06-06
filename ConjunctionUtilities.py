@@ -941,15 +941,15 @@ def unit_test_tca():
     
     # RK4 test
     start = time.time()
-    # T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
-    #                                int_params, bodies)
+    T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
+                                    int_params, bodies)
     
 
     
-    # print('')
-    # print('RK4 TCA unit test runtime [seconds]:', time.time() - start)
-    # print('RK4 TCA error [seconds]:', T_list[0]-TCA_true)
-    # print('RK4 miss distance error [m]:', rho_list[0]-rho_true)
+    print('')
+    print('RK4 TCA unit test runtime [seconds]:', time.time() - start)
+    print('RK4 TCA error [seconds]:', T_list[0]-TCA_true)
+    print('RK4 miss distance error [m]:', rho_list[0]-rho_true)
     
     
     # RK78 test
