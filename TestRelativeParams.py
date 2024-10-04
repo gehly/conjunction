@@ -1,18 +1,14 @@
 import numpy as np
 import math
+import matplotlib.pyplot as plt
 
+import TudatPropagator as prop
 
-# Generic Values
-arcsec2rad = np.pi/(3600.*180.)
 
 # Earth parameters
-wE = 7.2921158553e-5  # rad/s
-GME = 398600.4415  # km^3/s^2
-J2E = 1.082626683e-3
+GME = 398600.4415*1e9  # m^3/s^2
 
-# WGS84 Data (Pratap and Misra P. 103)
-Re = 6378.1370   # km
-rec_f = 298.257223563
+
 
 
 
@@ -23,24 +19,25 @@ def test_damico_tsx_tdx():
     Cd = 2.3                # unitless
     Cr = 1.3                # unitless
     A = 3.2                 # m^2
-    m = 1238                # kg
+    m = 1238.                # kg
     
     # Chief Orbit Parameters
-    a = 6892.945*1000.      # m
+    a = 6892.945*1000.                  # m
     e = 1e-12
-    i = 97.*np.pi/180.      # rad
-    RAAN = 0.               # rad
-    w = 270.*np.pi/180.     # rad
-    theta = 0.              # rad
+    i = 97.*np.pi/180.                  # rad
+    RAAN = 0.                           # rad
+    w = 270.*np.pi/180.                 # rad
+    theta = 0.                          # rad
+    P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
     
     # Orbit Differences
     di_x = 0.
-    di_y = -1./a                # rad
+    di_y = -1000./a             # rad
     di = 0.                     # rad
     dRAAN = (di_y/np.sin(i))    # rad
     
     de_x = 0.
-    de_y = 0.3/a                        # non-dim
+    de_y = 300./a                       # non-dim
     psi = 90.*np.pi/180.                # rad
     de = np.linalg.norm([de_x, de_y])   # non-dim
     
@@ -65,7 +62,7 @@ def test_damico_tsx_tdx():
     r1_vect = X1[0:3].reshape(3,1)
     v1_vect = X1[3:6].reshape(3,1)
     r2_vect = X2[0:3].reshape(3,1)
-    v2_vect = X2[0:3].reshape(3,1)        
+    v2_vect = X2[3:6].reshape(3,1)        
     
     r1 = np.linalg.norm(r1_vect)
     v1 = np.linalg.norm(v1_vect)
@@ -92,13 +89,268 @@ def test_damico_tsx_tdx():
     ip_1 = np.cross(ih_1, ie_1, axis=0)
         
     P_ECI = np.concatenate((ie_1, ip_1, ih_1), axis=1).T
+    P_ECI_check = compute_R3(w) @ R1 @ R3
     
     R3w = compute_R3(-w)
     
     OF1_ECI_alt = R3w @ P_ECI
     
     
+    # print('')
     
+    # print('h1_vect', )
+    
+    # print('ie_1', ie_1)
+    # print('ip_1', ip_1)
+    # print('ih_1', ih_1)
+    
+    # print(OF1_ECI)
+    # print(OF1_ECI_alt)
+    
+    # print('')
+    # print(P_ECI)
+    # print(P_ECI_check)
+    
+    print('')
+    print('initial ECI states')
+    print('X1', X1)
+    print('X2', X2)
+    
+    
+    # Check rotation matrices
+    diff = np.max(abs(OF1_ECI_alt - OF1_ECI))
+    print('check rotation matrices', diff)
+    
+    # Rotate e/i vectors to Orbit Frame 1
+    de_vect_of = np.dot(OF1_ECI, de_vect_eci)
+    di_vect_of = np.dot(OF1_ECI, di_vect_eci)
+    angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
+    
+    # Check relative e/i vectors
+    de_check = np.array([[de_x], [de_y], [0.]])
+    di_check = np.array([[di_x], [di_y], [0.]])
+    
+    print('de_vect_of0', de_vect_of)
+    print('di_vect_of0', di_vect_of)
+    print('check de', de_vect_of - de_check)
+    print('check di', di_vect_of - di_check)
+    
+    print('')
+    print('relative orbit params at t0')
+    print('rho_ric', rho_ric)
+    print('drho_ric', drho_ric)
+    print('de', de_vect_of)
+    print('di', di_vect_of)
+    print('angle [deg]', angle*180./np.pi)
+    
+    plt.figure()
+    plt.plot([0., de_x], [0., de_y], 'k')
+    plt.xlabel('de[x]')
+    plt.ylabel('de[y]')
+    
+    plt.figure()
+    plt.plot([0., di_x], [0., di_y], 'k')
+    plt.xlabel('di[x]')
+    plt.ylabel('di[y]')
+    
+    
+    # Propagate orbits
+    bodies_to_create = ['Sun', 'Earth', 'Moon']
+    #bodies_to_create = ['Earth']
+    bodies = prop.tudat_initialize_bodies(bodies_to_create)    
+    
+    state_params = {}
+    state_params['mass'] = m
+    state_params['area'] = A
+    state_params['Cd'] = Cd
+    state_params['Cr'] = Cr
+    state_params['sph_deg'] = 20
+    state_params['sph_ord'] = 20    
+    state_params['central_bodies'] = ['Earth']
+    state_params['bodies_to_create'] = bodies_to_create
+
+    int_params = {}
+    # int_params['tudat_integrator'] = 'rk4'
+    # int_params['step'] = 20.
+    
+    int_params['tudat_integrator'] = 'rkf78'
+    int_params['step'] = 20.
+    int_params['max_step'] = 20.
+    int_params['min_step'] = 20.
+    int_params['rtol'] = np.inf
+    int_params['atol'] = np.inf
+    
+    tvec = np.array([0., 86400.*30])
+    Xo = np.concatenate((X1, X2), axis=0)
+    
+    tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
+
+    # Compute relative e/i vectors and angle between them at each time
+    thrs_plot = []
+    de_x_plot = []
+    de_y_plot = []
+    di_x_plot = []
+    di_y_plot = []
+    angle_deg_plot = []
+    a_plot = []
+    e_plot = []
+    i_plot = []
+    rt_plot = []
+    it_plot = []
+    ct_plot = []
+    radial_list = []
+    intrack_list = []
+    crosstrack_list = []
+    danger_ind = np.nan
+    angle_minimum = 5.*np.pi/180.
+    danger_angle = np.inf
+    for kk in range(len(tout)):
+        r1_vect = Xout[kk,0:3].reshape(3,1)
+        v1_vect = Xout[kk,3:6].reshape(3,1)
+        r2_vect = Xout[kk,6:9].reshape(3,1)
+        v2_vect = Xout[kk,9:12].reshape(3,1)
+        X1 = Xout[kk,0:6].reshape(6,1)
+        elem = cart2kep(X1)
+        inc = float(elem[2,0])
+        RAAN = float(elem[3,0])
+        
+        # Compute relative positions in rotating Hill frame
+        rho_eci = r2_vect - r1_vect
+        rho_ric = eci2ric(r1_vect, v1_vect, rho_eci)
+        radial_list.append(float(rho_ric[0,0]))
+        intrack_list.append(float(rho_ric[1,0]))
+        crosstrack_list.append(float(rho_ric[2,0]))
+        
+        # Compute e/i vectors and rotate to Orbit Frame 1
+        de_vect_eci, di_vect_eci = inertial2relative_ei(r1_vect, v1_vect, r2_vect, v2_vect)
+        
+        R1 = compute_R1(inc)    
+        R3 = compute_R3(RAAN)
+        OF1_ECI = R1 @ R3
+        
+        de_vect_of = np.dot(OF1_ECI, de_vect_eci)
+        di_vect_of = np.dot(OF1_ECI, di_vect_eci)
+        angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
+        
+        # Check for date when angle is closest to perpendicular, if it exists
+        angle_diff = abs(angle - np.pi/2.)
+        if angle_diff < angle_minimum:
+            angle_minimum = angle_diff
+            danger_angle = angle
+            danger_time = tout[kk]
+            danger_ind = kk
+            danger_de_x = float(de_vect_of[0,0])
+            danger_de_y = float(de_vect_of[1,0])
+            danger_di_x = float(di_vect_of[0,0])
+            danger_di_y = float(di_vect_of[1,0])
+            
+        
+        # Store data for plots
+        if kk % 100 == 0:
+            thrs_plot.append(tout[kk]/3600.)
+            de_x_plot.append(float(de_vect_of[0,0]))
+            de_y_plot.append(float(de_vect_of[1,0]))
+            di_x_plot.append(float(di_vect_of[0,0]))
+            di_y_plot.append(float(di_vect_of[1,0]))
+            angle_deg_plot.append(angle*180./np.pi)
+            a_plot.append(float(elem[0,0])/1000.)
+            e_plot.append(float(elem[1,0]))
+            i_plot.append(inc*180/np.pi)
+        
+            
+    
+    
+        
+        
+    plt.figure()
+    plt.plot([ti/24. for ti in thrs_plot], angle_deg_plot, 'k.')
+    if not np.isnan(danger_ind):
+        plt.plot(danger_time/86400., danger_angle*180/np.pi, 'ro')
+    plt.xlabel('Time [days]')
+    plt.ylabel('Separation Angle [deg]')
+    
+    plt.figure()
+    plt.plot(de_x_plot, de_y_plot, 'k.')
+    plt.xlim([-6e-5, 6e-5])
+    plt.ylim([-6e-5, 6e-5])    
+    if not np.isnan(danger_ind):
+        plt.plot([0., danger_de_x], [0., danger_de_y], 'r')
+    
+    # plt.axis('equal')
+    plt.grid()
+    plt.xlabel('de [x]')
+    plt.ylabel('de [y]')
+    
+    plt.figure()
+    plt.plot(di_x_plot, di_y_plot, 'k.')
+    plt.xlim([-6e-4, 6e-4])
+    plt.ylim([-6e-4, 6e-4])
+    if not np.isnan(danger_ind):
+        plt.plot([0., danger_di_x], [0., danger_di_y], 'r')
+        
+    plt.grid()
+    plt.xlabel('di [x]')
+    plt.ylabel('di [y]')
+    
+    plt.figure()
+    plt.subplot(3,1,1)
+    plt.plot(thrs_plot, a_plot, 'k.')
+    plt.ylabel('SMA [km]')
+    plt.subplot(3,1,2)
+    plt.plot(thrs_plot, e_plot, 'k.')
+    plt.ylabel('ECC')
+    plt.subplot(3,1,3)
+    plt.plot(thrs_plot, i_plot, 'k.')
+    plt.ylabel('INC [deg]')
+    plt.xlabel('Time [hours]')
+    
+    # plt.figure()
+    # plt.subplot(3,1,1)
+    # plt.plot(tout/3600., radial_list, 'k.')
+    # plt.ylabel('R [m]')
+    # plt.subplot(3,1,2)
+    # plt.plot(tout/3600., intrack_list, 'k.')
+    # plt.ylabel('I [m]')
+    # plt.subplot(3,1,3)
+    # plt.plot(tout/3600., crosstrack_list, 'k.')
+    # plt.ylabel('C [m]')
+    # plt.xlabel('Time [hours]')
+    
+    
+    
+    # Plot relative distances for a complete orbit in 5 day increments
+    day_list = [0, 5, 10, 15, 20, 25, 30]
+    if not np.isnan(danger_ind):
+        day_list.append(tout[danger_ind]/86400.)
+        
+    plt.figure()
+    for day in day_list:
+        ind1 = np.where(tout >= day*86400.)
+        ind2 = np.where(tout < day*86400.+P+20.)
+        inds = list(set(ind1[0]).intersection(set(ind2[0])))
+        print(inds)
+        
+        r_plot = [radial_list[ii] for ii in inds]
+        c_plot = [crosstrack_list[ii] for ii in inds]
+        
+        
+        if day == 0 or day == 30:
+            linewidth=3.
+        else:
+            linewidth=1.
+        
+        color = 'k'
+        if not np.isnan(danger_ind):
+            if day == tout[danger_ind]/86400.:
+                color = 'r'
+                linewidth = 3.
+
+                
+        plt.plot(r_plot, c_plot, color=color, linewidth=linewidth)
+        
+    
+    
+    plt.show()
     
     return
 
@@ -365,13 +617,13 @@ def kep2cart(elem, GM=GME):
     elem[1] : e
       Eccentricity                [unitless]
     elem[2] : i
-      Inclination                 [deg]
+      Inclination                 [rad]
     elem[3] : RAAN
-      Right Asc Ascending Node    [deg]
+      Right Asc Ascending Node    [rad]
     elem[4] : w
-      Argument of Periapsis       [deg]
+      Argument of Periapsis       [rad]
     elem[5] : theta
-      True Anomaly                [deg]
+      True Anomaly                [rad]
       
       
     Returns
@@ -395,13 +647,13 @@ def kep2cart(elem, GM=GME):
       
     '''
     
-    # Retrieve input elements, convert to radians
+    # Retrieve input elements
     a = float(elem[0])
     e = float(elem[1])
-    i = float(elem[2]) * math.pi/180
-    RAAN = float(elem[3]) * math.pi/180
-    w = float(elem[4]) * math.pi/180
-    theta = float(elem[5]) * math.pi/180
+    i = float(elem[2])
+    RAAN = float(elem[3])
+    w = float(elem[4])
+    theta = float(elem[5])
 
     # Calculate h and r
     p = a*(1 - e**2)
@@ -464,13 +716,13 @@ def cart2kep(cart, GM=GME):
     elem[1] : e
       Eccentricity                [unitless]
     elem[2] : i
-      Inclination                 [deg]
+      Inclination                 [rad]
     elem[3] : RAAN
-      Right Asc Ascending Node    [deg]
+      Right Asc Ascending Node    [rad]
     elem[4] : w
-      Argument of Periapsis       [deg]
+      Argument of Periapsis       [rad]
     elem[5] : theta
-      True Anomaly                [deg]    
+      True Anomaly                [rad]    
       
     '''
     
@@ -528,11 +780,11 @@ def cart2kep(cart, GM=GME):
     if a > 0. and theta < 0.:
         theta += 2.*math.pi
     
-    # Convert angles to deg
-    i *= 180./math.pi
-    RAAN *= 180./math.pi
-    w *= 180./math.pi
-    theta *= 180./math.pi
+    # # Convert angles to deg
+    # i *= 180./math.pi
+    # RAAN *= 180./math.pi
+    # w *= 180./math.pi
+    # theta *= 180./math.pi
     
     # Form output
     elem = np.array([[a], [e], [i], [RAAN], [w], [theta]])
@@ -540,4 +792,10 @@ def cart2kep(cart, GM=GME):
     return elem
 
 
+
+if __name__ == '__main__':
+    
+    plt.close('all')
+    
+    test_damico_tsx_tdx()
 
