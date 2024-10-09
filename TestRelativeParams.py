@@ -1,19 +1,22 @@
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import pickle
+import os
 
 import TudatPropagator as prop
 
 
 # Earth parameters
 GME = 398600.4415*1e9  # m^3/s^2
+J2E = 1.082626683e-3
+Re = 6378137.0
 
 
 
 
 
-
-def test_damico_tsx_tdx():
+def test_damico_tsx_tdx(datafile):
     
     # Constants
     Cd = 2.3                # unitless
@@ -27,7 +30,7 @@ def test_damico_tsx_tdx():
     i = 97.*np.pi/180.                  # rad
     RAAN = 0.                           # rad
     w = 270.*np.pi/180.                 # rad
-    theta = 0.                          # rad
+    true_anom = 0.                      # rad
     P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
     
     # Orbit Differences
@@ -38,16 +41,25 @@ def test_damico_tsx_tdx():
     
     de_x = 0.
     de_y = 300./a                       # non-dim
-    psi = 90.*np.pi/180.                # rad
     de = np.linalg.norm([de_x, de_y])   # non-dim
+    
+    # Compute initial relative angles (vector coordinates in Orbit Frame 1)
+    # theta gives angle between N1 (asc node) and N12 (relative asc node)
+    # phi gives angle between N1 and de vector
+    theta0 = math.atan2(di_y, di_x)      # rad
+    phi0 = math.atan2(de_y, de_x)        # rad
+    
+    # Compute mean rate of change of angles due to J2 (D'Amico Eqs 20-22)
+    dphi_dt = 1.5*(np.pi/P)*(Re**2./a**2.)*J2E*(5.*np.cos(i)**2. - 1)
+    diy_dt = -3.*(np.pi/P)*(Re**2./a**2.)*J2E*np.sin(i)**2.*di
     
     # Deputy Orbit
     a2 = a + 0.
     e2 = e + de
-    i2 = i + di                 # rad
-    RAAN2 = RAAN + dRAAN        # rad
-    w2 = 90*np.pi/180.          # rad
-    theta2 = theta - np.pi      # rad
+    i2 = i + di                         # rad
+    RAAN2 = RAAN + dRAAN                # rad
+    w2 = 90*np.pi/180.                  # rad
+    true_anom2 = true_anom - np.pi      # rad
     
     # Rotation matrix from ECI to Orbit Frame 1
     R1 = compute_R1(i)    
@@ -55,8 +67,8 @@ def test_damico_tsx_tdx():
     OF1_ECI = R1 @ R3
     
     # Initial conditions
-    X1 = kep2cart([a, e, i, RAAN, w, theta])
-    X2 = kep2cart([a2, e2, i2, RAAN2, w2, theta2])
+    X1 = kep2cart([a, e, i, RAAN, w, true_anom])
+    X2 = kep2cart([a2, e2, i2, RAAN2, w2, true_anom])
     
     # Check initial orbit energy and relative orbit params
     r1_vect = X1[0:3].reshape(3,1)
@@ -180,10 +192,64 @@ def test_damico_tsx_tdx():
     int_params['rtol'] = np.inf
     int_params['atol'] = np.inf
     
-    tvec = np.array([0., 86400.*30])
+    tvec = np.array([0., 86400.*31])
     Xo = np.concatenate((X1, X2), axis=0)
     
     tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
+    
+    # Compute mean vectors and angles over time
+    phi = phi0 + dphi_dt*tvec    
+    dex_t = de*np.cos(phi)
+    dey_t = de*np.sin(phi)
+    
+    dix_t = di_x*np.ones(len(tvec,))
+    diy_t = di_y + diy_dt*tvec
+    theta = np.asarray([math.atan2(yy, di_x) for yy in diy_t])
+    
+    
+    pklFile = open( datafile, 'wb' )
+    pickle.dump( [tout, Xout, phi, theta, dex_t, dey_t, dix_t, diy_t], pklFile, -1 )
+    pklFile.close()
+    
+    
+    return
+
+
+def compute_angle_diff(a, b):
+    
+    diff = (a - b) % (2.*np.pi)
+    if diff < -np.pi:
+        diff += 2.*np.pi
+    if diff > np.pi:
+        diff -= 2.*np.pi    
+    
+    return abs(diff)
+
+
+def plot_damico_tsx_tdx(datafile):
+    
+    # Load data
+    pklFile = open(datafile, 'rb' )
+    data = pickle.load( pklFile )
+    tout = data[0]
+    Xout = data[1]
+    phi = data[2]
+    theta = data[3]
+    dex_t = data[4]
+    dey_t = data[5]
+    dix_t = data[6]
+    diy_t = data[7]
+    pklFile.close()
+    
+    
+    # Compute mean angle
+    mean_angle = [compute_angle_diff(pi,ti) for pi,ti in zip(phi, theta)]
+    
+    # Orbit elements
+    Xo = Xout[0,0:6].reshape(6,1)
+    elem = cart2kep(Xo)
+    a = elem[0]
+    P = 2*np.pi*np.sqrt(a**3/GME)
 
     # Compute relative e/i vectors and angle between them at each time
     thrs_plot = []
@@ -319,35 +385,47 @@ def test_damico_tsx_tdx():
     
     
     # Plot relative distances for a complete orbit in 5 day increments
-    day_list = [0, 5, 10, 15, 20, 25, 30]
+    # day_list = [0, 5, 10, 15, 20, 25, 30]
+    day_list = [26.7]
     if not np.isnan(danger_ind):
-        day_list.append(tout[danger_ind]/86400.)
+        # day_list.append(tout[danger_ind]/86400.)
+        print('Danger Time [days]', tout[danger_ind]/86400.)
+        print('check', danger_time/86400.)
         
     plt.figure()
     for day in day_list:
-        ind1 = np.where(tout >= day*86400.)
-        ind2 = np.where(tout < day*86400.+P+20.)
+        ind1 = np.where(tout >= day*86400.-3*P)
+        ind2 = np.where(tout < day*86400.+3*P+1000.)
         inds = list(set(ind1[0]).intersection(set(ind2[0])))
-        print(inds)
         
         r_plot = [radial_list[ii] for ii in inds]
         c_plot = [crosstrack_list[ii] for ii in inds]
         
         
-        if day == 0 or day == 30:
+        color = 'k'        
+        if day == 0:
             linewidth=3.
+            color = 'g'
+        elif day == 30:
+            linewidth=3.
+            color = 'b'
         else:
             linewidth=1.
         
-        color = 'k'
+        
         if not np.isnan(danger_ind):
             if day == tout[danger_ind]/86400.:
                 color = 'r'
                 linewidth = 3.
 
                 
-        plt.plot(r_plot, c_plot, color=color, linewidth=linewidth)
+        plt.plot(c_plot, r_plot, color=color, linewidth=linewidth)
         
+    plt.ylabel('Radial [m]')
+    plt.xlabel('Cross-Track [m]')
+    plt.xlim([-1000, 1000])
+    plt.ylim([-1000, 1000])
+    plt.grid()        
     
     
     plt.show()
@@ -613,7 +691,7 @@ def kep2cart(elem, GM=GME):
     Keplerian Orbital Elements
     ------
     elem[0] : a
-      Semi-Major Axis             [km]
+      Semi-Major Axis             [m]
     elem[1] : e
       Eccentricity                [unitless]
     elem[2] : i
@@ -633,17 +711,17 @@ def kep2cart(elem, GM=GME):
     Cartesian Coordinates (Inertial Frame)
     ------
     cart[0] : x
-      Position in x               [km]
+      Position in x               [m]
     cart[1] : y
-      Position in y               [km]
+      Position in y               [m]
     cart[2] : z
-      Position in z               [km]
+      Position in z               [m]
     cart[3] : dx
-      Velocity in x               [km/s]
+      Velocity in x               [m/s]
     cart[4] : dy
-      Velocity in y               [km/s]
+      Velocity in y               [m/s]
     cart[5] : dz
-      Velocity in z               [km/s]  
+      Velocity in z               [m/s]  
       
     '''
     
@@ -693,17 +771,17 @@ def cart2kep(cart, GM=GME):
     Cartesian Coordinates (Inertial Frame)
     ------
     cart[0] : x
-      Position in x               [km]
+      Position in x               [m]
     cart[1] : y
-      Position in y               [km]
+      Position in y               [m]
     cart[2] : z
-      Position in z               [km]
+      Position in z               [m]
     cart[3] : dx
-      Velocity in x               [km/s]
+      Velocity in x               [m/s]
     cart[4] : dy
-      Velocity in y               [km/s]
+      Velocity in y               [m/s]
     cart[5] : dz
-      Velocity in z               [km/s]
+      Velocity in z               [m/s]
       
     Returns
     ------
@@ -797,5 +875,9 @@ if __name__ == '__main__':
     
     plt.close('all')
     
-    test_damico_tsx_tdx()
+    
+    datafile = os.path.join('unit_test', 'damico_tsx_tdx_output.pkl')
+    
+    test_damico_tsx_tdx(datafile)
+    plot_damico_tsx_tdx(datafile)
 
