@@ -68,7 +68,7 @@ def test_damico_tsx_tdx(datafile):
     
     # Initial conditions
     X1 = kep2cart([a, e, i, RAAN, w, true_anom])
-    X2 = kep2cart([a2, e2, i2, RAAN2, w2, true_anom])
+    X2 = kep2cart([a2, e2, i2, RAAN2, w2, true_anom2])
     
     # Check initial orbit energy and relative orbit params
     r1_vect = X1[0:3].reshape(3,1)
@@ -198,13 +198,14 @@ def test_damico_tsx_tdx(datafile):
     tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
     
     # Compute mean vectors and angles over time
-    phi = phi0 + dphi_dt*tvec    
+    phi = phi0 + dphi_dt*tout
     dex_t = de*np.cos(phi)
     dey_t = de*np.sin(phi)
     
-    dix_t = di_x*np.ones(len(tvec,))
-    diy_t = di_y + diy_dt*tvec
+    dix_t = di_x*np.ones(len(tout,))
+    diy_t = di_y + diy_dt*tout
     theta = np.asarray([math.atan2(yy, di_x) for yy in diy_t])
+    
     
     
     pklFile = open( datafile, 'wb' )
@@ -245,6 +246,12 @@ def plot_damico_tsx_tdx(datafile):
     # Compute mean angle
     mean_angle = [compute_angle_diff(pi,ti) for pi,ti in zip(phi, theta)]
     
+    print('')
+    print(len(tout))
+    print(len(phi))
+    print(len(theta))
+    print(len(mean_angle))
+    
     # Orbit elements
     Xo = Xout[0,0:6].reshape(6,1)
     elem = cart2kep(Xo)
@@ -257,7 +264,12 @@ def plot_damico_tsx_tdx(datafile):
     de_y_plot = []
     di_x_plot = []
     di_y_plot = []
+    de_x_mean = []
+    de_y_mean = []
+    di_x_mean = []
+    di_y_mean = []
     angle_deg_plot = []
+    mean_angle_plot = []
     a_plot = []
     e_plot = []
     i_plot = []
@@ -299,10 +311,12 @@ def plot_damico_tsx_tdx(datafile):
         angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
         
         # Check for date when angle is closest to perpendicular, if it exists
-        angle_diff = abs(angle - np.pi/2.)
+        # angle_diff = abs(angle - np.pi/2.)
+        angle_diff = abs(mean_angle[kk] - np.pi/2.)
         if angle_diff < angle_minimum:
             angle_minimum = angle_diff
-            danger_angle = angle
+            # danger_angle = angle
+            danger_angle = mean_angle[kk]
             danger_time = tout[kk]
             danger_ind = kk
             danger_de_x = float(de_vect_of[0,0])
@@ -318,7 +332,12 @@ def plot_damico_tsx_tdx(datafile):
             de_y_plot.append(float(de_vect_of[1,0]))
             di_x_plot.append(float(di_vect_of[0,0]))
             di_y_plot.append(float(di_vect_of[1,0]))
+            de_x_mean.append(dex_t[kk])
+            de_y_mean.append(dey_t[kk])
+            di_x_mean.append(dix_t[kk])
+            di_y_mean.append(diy_t[kk])
             angle_deg_plot.append(angle*180./np.pi)
+            mean_angle_plot.append(mean_angle[kk]*180./np.pi)
             a_plot.append(float(elem[0,0])/1000.)
             e_plot.append(float(elem[1,0]))
             i_plot.append(inc*180/np.pi)
@@ -330,6 +349,7 @@ def plot_damico_tsx_tdx(datafile):
         
     plt.figure()
     plt.plot([ti/24. for ti in thrs_plot], angle_deg_plot, 'k.')
+    plt.plot([ti/24. for ti in thrs_plot], mean_angle_plot, 'b.')
     if not np.isnan(danger_ind):
         plt.plot(danger_time/86400., danger_angle*180/np.pi, 'ro')
     plt.xlabel('Time [days]')
@@ -337,6 +357,7 @@ def plot_damico_tsx_tdx(datafile):
     
     plt.figure()
     plt.plot(de_x_plot, de_y_plot, 'k.')
+    plt.plot(de_x_mean, de_y_mean, 'b.')
     plt.xlim([-6e-5, 6e-5])
     plt.ylim([-6e-5, 6e-5])    
     if not np.isnan(danger_ind):
@@ -349,6 +370,7 @@ def plot_damico_tsx_tdx(datafile):
     
     plt.figure()
     plt.plot(di_x_plot, di_y_plot, 'k.')
+    plt.plot(di_x_mean, di_y_mean, 'b.')
     plt.xlim([-6e-4, 6e-4])
     plt.ylim([-6e-4, 6e-4])
     if not np.isnan(danger_ind):
@@ -385,10 +407,10 @@ def plot_damico_tsx_tdx(datafile):
     
     
     # Plot relative distances for a complete orbit in 5 day increments
-    # day_list = [0, 5, 10, 15, 20, 25, 30]
-    day_list = [26.7]
+    day_list = [0, 5, 10, 15, 20, 25, 30]
+    # day_list = [26.7]
     if not np.isnan(danger_ind):
-        # day_list.append(tout[danger_ind]/86400.)
+        day_list.append(tout[danger_ind]/86400.)
         print('Danger Time [days]', tout[danger_ind]/86400.)
         print('check', danger_time/86400.)
         
@@ -878,6 +900,6 @@ if __name__ == '__main__':
     
     datafile = os.path.join('unit_test', 'damico_tsx_tdx_output.pkl')
     
-    test_damico_tsx_tdx(datafile)
+    # test_damico_tsx_tdx(datafile)
     plot_damico_tsx_tdx(datafile)
 
