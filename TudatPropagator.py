@@ -104,10 +104,10 @@ def propagate_orbit(Xo, tvec, state_params, int_params, bodies=None):
     # Retrieve input parameters
     central_bodies = state_params['central_bodies']
     bodies_to_create = state_params['bodies_to_create']
-    mass = state_params['mass']
-    Cd = state_params['Cd']
-    Cr = state_params['Cr']
-    area = state_params['area']
+    mass_list = state_params['mass_list']
+    Cd_list = state_params['Cd_list']
+    Cr_list = state_params['Cr_list']
+    area_list = state_params['area_list']
     sph_deg = state_params['sph_deg']
     sph_ord = state_params['sph_ord']
     
@@ -127,6 +127,10 @@ def propagate_orbit(Xo, tvec, state_params, int_params, bodies=None):
     bodies_to_propagate = []
     for jj in range(N):
         jj_str = str(jj)
+        mass = mass_list[jj]
+        Cd = Cd_list[jj]
+        Cr = Cr_list[jj]
+        area = area_list[jj]
         bodies.create_empty_body(jj_str)
         bodies.get(jj_str).mass = mass
         bodies_to_propagate.append(jj_str)

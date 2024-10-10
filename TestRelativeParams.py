@@ -3,6 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import pickle
 import os
+from datetime import datetime
 
 import TudatPropagator as prop
 
@@ -26,11 +27,11 @@ def test_damico_tsx_tdx(datafile):
     
     # Chief Orbit Parameters
     a = 6892.945*1000.                  # m
-    e = 1e-12
+    e = 1e-8
     i = 97.*np.pi/180.                  # rad
     RAAN = 0.                           # rad
     w = 270.*np.pi/180.                 # rad
-    true_anom = 0.                      # rad
+    M = np.pi/2.  #0.                              # rad
     P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
     
     # Orbit Differences
@@ -59,7 +60,7 @@ def test_damico_tsx_tdx(datafile):
     i2 = i + di                         # rad
     RAAN2 = RAAN + dRAAN                # rad
     w2 = 90*np.pi/180.                  # rad
-    true_anom2 = true_anom - np.pi      # rad
+    M2 = M + np.pi                      # rad
     
     # Rotation matrix from ECI to Orbit Frame 1
     R1 = compute_R1(i)    
@@ -67,8 +68,25 @@ def test_damico_tsx_tdx(datafile):
     OF1_ECI = R1 @ R3
     
     # Initial conditions
-    X1 = kep2cart([a, e, i, RAAN, w, true_anom])
-    X2 = kep2cart([a2, e2, i2, RAAN2, w2, true_anom2])
+    # Convert mean elements to osculating elements, then Cartesian
+    # osc_elem1 = mean2osc([a, e, i, RAAN, w, M])
+    # osc_elem2 = mean2osc([a2, e2, i2, RAAN2, w2, M2])   
+    
+    # E = mean2ecc(M, e)
+    # true_anom1 = ecc2true(E, e)
+    
+    # E2 = mean2ecc(M2, e2)
+    # true_anom2 = ecc2true(E2, e2)
+    
+    # osc_elem1[4] += np.pi
+    # osc_elem1[5] = true_anom1
+    # osc_elem2[5] = true_anom2
+    
+    osc_elem1 = [a, e, i, RAAN, w, M]
+    osc_elem2 = [a2, e2, i2, RAAN2, w2, M2]
+    
+    X1 = kep2cart(osc_elem1)
+    X2 = kep2cart(osc_elem2)
     
     # Check initial orbit energy and relative orbit params
     r1_vect = X1[0:3].reshape(3,1)
@@ -125,6 +143,8 @@ def test_damico_tsx_tdx(datafile):
     
     print('')
     print('initial ECI states')
+    print('osc_elem1', osc_elem1)
+    print('osc_elem2', osc_elem2)
     print('X1', X1)
     print('X2', X2)
     
@@ -153,7 +173,10 @@ def test_damico_tsx_tdx(datafile):
     print('drho_ric', drho_ric)
     print('de', de_vect_of)
     print('di', di_vect_of)
+    print('theta0', theta0*180./np.pi)
+    print('phi0', phi0*180./np.pi)
     print('angle [deg]', angle*180./np.pi)
+    
     
     plt.figure()
     plt.plot([0., de_x], [0., de_y], 'k')
@@ -172,10 +195,10 @@ def test_damico_tsx_tdx(datafile):
     bodies = prop.tudat_initialize_bodies(bodies_to_create)    
     
     state_params = {}
-    state_params['mass'] = m
-    state_params['area'] = A
-    state_params['Cd'] = Cd
-    state_params['Cr'] = Cr
+    state_params['mass_list'] = [m, m]
+    state_params['area_list'] = [A, 1.02*A]
+    state_params['Cd_list'] = [Cd, Cd]
+    state_params['Cr_list'] = [Cr, Cr]
     state_params['sph_deg'] = 20
     state_params['sph_ord'] = 20    
     state_params['central_bodies'] = ['Earth']
@@ -192,18 +215,19 @@ def test_damico_tsx_tdx(datafile):
     int_params['rtol'] = np.inf
     int_params['atol'] = np.inf
     
-    tvec = np.array([0., 86400.*31])
+    initial_time = (datetime(2006, 5, 1) - datetime(2000, 1, 1, 12, 0, 0)).total_seconds()
+    tvec = np.array([0., 86400.*31]) + initial_time
     Xo = np.concatenate((X1, X2), axis=0)
     
     tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
     
     # Compute mean vectors and angles over time
-    phi = phi0 + dphi_dt*tout
+    phi = phi0 + dphi_dt*(tout - initial_time)
     dex_t = de*np.cos(phi)
     dey_t = de*np.sin(phi)
     
     dix_t = di_x*np.ones(len(tout,))
-    diy_t = di_y + diy_dt*tout
+    diy_t = di_y + diy_dt*(tout - initial_time)
     theta = np.asarray([math.atan2(yy, di_x) for yy in diy_t])
     
     
@@ -242,15 +266,13 @@ def plot_damico_tsx_tdx(datafile):
     diy_t = data[7]
     pklFile.close()
     
+    # Reset time to count from zero
+    tsec = tout - tout[0]
     
     # Compute mean angle
     mean_angle = [compute_angle_diff(pi,ti) for pi,ti in zip(phi, theta)]
     
-    print('')
-    print(len(tout))
-    print(len(phi))
-    print(len(theta))
-    print(len(mean_angle))
+
     
     # Orbit elements
     Xo = Xout[0,0:6].reshape(6,1)
@@ -282,7 +304,7 @@ def plot_damico_tsx_tdx(datafile):
     danger_ind = np.nan
     angle_minimum = 5.*np.pi/180.
     danger_angle = np.inf
-    for kk in range(len(tout)):
+    for kk in range(len(tsec)):
         r1_vect = Xout[kk,0:3].reshape(3,1)
         v1_vect = Xout[kk,3:6].reshape(3,1)
         r2_vect = Xout[kk,6:9].reshape(3,1)
@@ -317,7 +339,7 @@ def plot_damico_tsx_tdx(datafile):
             angle_minimum = angle_diff
             # danger_angle = angle
             danger_angle = mean_angle[kk]
-            danger_time = tout[kk]
+            danger_time = tsec[kk]
             danger_ind = kk
             danger_de_x = float(de_vect_of[0,0])
             danger_de_y = float(de_vect_of[1,0])
@@ -327,7 +349,7 @@ def plot_damico_tsx_tdx(datafile):
         
         # Store data for plots
         if kk % 100 == 0:
-            thrs_plot.append(tout[kk]/3600.)
+            thrs_plot.append(tsec[kk]/3600.)
             de_x_plot.append(float(de_vect_of[0,0]))
             de_y_plot.append(float(de_vect_of[1,0]))
             di_x_plot.append(float(di_vect_of[0,0]))
@@ -410,15 +432,16 @@ def plot_damico_tsx_tdx(datafile):
     day_list = [0, 5, 10, 15, 20, 25, 30]
     # day_list = [26.7]
     if not np.isnan(danger_ind):
-        day_list.append(tout[danger_ind]/86400.)
-        print('Danger Time [days]', tout[danger_ind]/86400.)
+        day_list.append(tsec[danger_ind]/86400.)
+        print('Danger Time [days]', tsec[danger_ind]/86400.)
         print('check', danger_time/86400.)
         
     plt.figure()
     for day in day_list:
-        ind1 = np.where(tout >= day*86400.-3*P)
-        ind2 = np.where(tout < day*86400.+3*P+1000.)
+        ind1 = np.where(tsec >= (day*86400.-P))
+        ind2 = np.where(tsec < (day*86400.+P))
         inds = list(set(ind1[0]).intersection(set(ind2[0])))
+        # inds = list(range(int(day*(86400/20)), int(day*(86400/20)+int(np.round(P/20))+2)))
         
         r_plot = [radial_list[ii] for ii in inds]
         c_plot = [crosstrack_list[ii] for ii in inds]
@@ -426,19 +449,19 @@ def plot_damico_tsx_tdx(datafile):
         
         color = 'k'        
         if day == 0:
-            linewidth=3.
+            linewidth=2.
             color = 'g'
         elif day == 30:
-            linewidth=3.
+            linewidth=2.
             color = 'b'
         else:
             linewidth=1.
         
         
         if not np.isnan(danger_ind):
-            if day == tout[danger_ind]/86400.:
+            if day == tsec[danger_ind]/86400.:
                 color = 'r'
-                linewidth = 3.
+                linewidth = 2.
 
                 
         plt.plot(c_plot, r_plot, color=color, linewidth=linewidth)
@@ -892,14 +915,283 @@ def cart2kep(cart, GM=GME):
     return elem
 
 
+def mean2osc(mean_elem):
+    '''
+    This function converts mean Keplerian elements to osculating Keplerian
+    elements using Brouwer-Lyddane Theory.
+    
+    Parameters
+    ------
+    mean_elem : list
+        Mean Keplerian orbital elements [m, rad]
+        [a,e,i,RAAN,w,M]
+    
+    Returns
+    ------
+    osc_elem : list
+        Osculating Keplerian orbital elements [m, rad]
+        [a,e,i,RAAN,w,M]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    '''
+    
+    # Retrieve input elements, convert to radians
+    a0 = float(mean_elem[0])
+    e0 = float(mean_elem[1])
+    i0 = float(mean_elem[2])
+    RAAN0 = float(mean_elem[3])
+    w0 = float(mean_elem[4])
+    M0 = float(mean_elem[5])
+    
+    # Compute gamma parameter
+    gamma0 = (J2E/2.) * (Re/a0)**2.
+    
+    # Compute first order Brouwer-Lyddane transformation
+    a1,e1,i1,RAAN1,w1,M1 = brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0)
+
+    
+    osc_elem = [a1,e1,i1,RAAN1,w1,M1]
+    
+    return osc_elem
+
+
+def brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0):
+    '''
+    This function converts between osculating and mean Keplerian elements
+    using Brouwer-Lyddane Theory. The input gamma value determines whether 
+    the transformation is from osculating to mean elements or vice versa.
+    The same calculations are performed in either case.
+    
+    Parameters
+    ------
+    a0 : float
+        semi-major axis [m]
+    e0 : float
+        eccentricity
+    i0 : float
+        inclination [rad]
+    RAAN0 : float
+        right ascension of ascending node [rad]
+    w0 : float 
+        argument of periapsis [rad]
+    M0 : float
+        mean anomaly [rad]
+    gamma0 : float
+        intermediate calculation parameter        
+    
+    Returns 
+    ------
+    a1 : float
+        semi-major axis [m]
+    e1 : float
+        eccentricity
+    i1 : float
+        inclination [rad]
+    RAAN1 : float
+        right ascension of ascending node [rad]
+    w1 : float 
+        argument of periapsis [rad]
+    M1 : float
+        mean anomaly [rad]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    
+    '''
+    
+    # Compute transformation parameters
+    eta = np.sqrt(1. - e0**2.)
+    gamma1 = gamma0/eta**4.
+    
+    # Compute true anomaly
+    E0 = mean2ecc(M0, e0)
+    f0 = ecc2true(E0, e0)
+    
+    # Compute intermediate terms
+    a_r = (1. + e0*math.cos(f0))/eta**2.
+    
+    de1 = (gamma1/8.)*e0*eta**2.*(1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.) /
+                                  (1.-5.*math.cos(i0)**2.)))*math.cos(2.*w0)
+    
+    de = de1 + (eta**2./2.) * \
+        (gamma0*((3.*math.cos(i0)**2. - 1.)/(eta**6.) *
+                 (e0*eta + e0/(1.+eta) + 3.*math.cos(f0) + 3.*e0*math.cos(f0)**2. + e0**2.*math.cos(f0)**3.) +
+              3.*(1.-math.cos(i0)**2.)/eta**6.*(e0 + 3.*math.cos(f0) + 3.*e0*math.cos(f0)**2. + e0**2.*math.cos(f0)**3.) * math.cos(2.*w0 + 2.*f0))
+                - gamma1*(1.-math.cos(i0)**2.)*(3.*math.cos(2*w0 + f0) + math.cos(2.*w0 + 3.*f0)))
+
+    di = -(e0*de1/(eta**2.*math.tan(i0))) + (gamma1/2.)*math.cos(i0)*np.sqrt(1.-math.cos(i0)**2.) * \
+          (3.*math.cos(2*w0 + 2.*f0) + 3.*e0*math.cos(2.*w0 + f0) + e0*math.cos(2.*w0 + 3.*f0))
+          
+    MwRAAN1 = M0 + w0 + RAAN0 + (gamma1/8.)*eta**3. * \
+              (1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))) - (gamma1/16.) * \
+              (2. + e0**2. - 11.*(2.+3.*e0**2.)*math.cos(i0)**2.
+               - 40.*(2.+5.*e0**2.)*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))
+               - 400.*e0**2.*(math.cos(i0)**6.)/((1.-5.*math.cos(i0)**2.)**2.)) + (gamma1/4.) * \
+              (-6.*(1.-5.*math.cos(i0)**2.)*(f0 - M0 + e0*math.sin(f0))
+               + (3.-5.*math.cos(i0)**2.)*(3.*math.sin(2.*w0 + 2.*f0) + 3.*e0*math.sin(2.*w0 + f0) + e0*math.sin(2.*w0 + 3.*f0))) \
+               - (gamma1/8.)*e0**2.*math.cos(i0) * \
+              (11. + 80.*(math.cos(i0)**2.)/(1.-5.*math.cos(i0)**2.) + 200.*(math.cos(i0)**4.)/((1.-5.*math.cos(i0)**2.)**2.)) \
+               - (gamma1/2.)*math.cos(i0) * \
+              (6.*(f0 - M0 + e0*math.sin(f0)) - 3.*math.sin(2.*w0 + 2.*f0) - 3.*e0*math.sin(2.*w0 + f0) - e0*math.sin(2.*w0 + 3.*f0))
+               
+    edM = (gamma1/8.)*e0*eta**3. * \
+          (1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))) - (gamma1/4.)*eta**3. * \
+          (2.*(3.*math.cos(i0)**2. - 1.)*((a_r*eta)**2. + a_r + 1.)*math.sin(f0) +
+           3.*(1. - math.cos(i0)**2.)*((-(a_r*eta)**2. - a_r + 1.)*math.sin(2.*w0 + f0) +
+           ((a_r*eta)**2. + a_r + (1./3.))*math.sin(2*w0 + 3.*f0)))
+          
+    dRAAN = -(gamma1/8.)*e0**2.*math.cos(i0) * \
+             (11. + 80.*(math.cos(i0)**2.)/(1.-5.*math.cos(i0)**2.) +
+              200.*(math.cos(i0)**4.)/((1.-5.*math.cos(i0)**2.)**2.)) - (gamma1/2.)*math.cos(i0) * \
+             (6.*(f0 - M0 + e0*math.sin(f0)) - 3.*math.sin(2.*w0 + 2.*f0) -
+              3.*e0*math.sin(2.*w0 + f0) - e0*math.sin(2.*w0 + 3.*f0))
+
+    d1 = (e0 + de)*math.sin(M0) + edM*math.cos(M0)
+    d2 = (e0 + de)*math.cos(M0) - edM*math.sin(M0)
+    d3 = (math.sin(i0/2.) + math.cos(i0/2.)*(di/2.))*math.sin(RAAN0) + math.sin(i0/2.)*dRAAN*math.cos(RAAN0)
+    d4 = (math.sin(i0/2.) + math.cos(i0/2.)*(di/2.))*math.cos(RAAN0) - math.sin(i0/2.)*dRAAN*math.sin(RAAN0)
+    
+    # Compute transformed elements
+    a1 = a0 + a0*gamma0*((3.*math.cos(i0)**2. - 1.)*(a_r**3. - (1./eta)**3.) +
+                         (3.*(1.-math.cos(i0)**2.)*a_r**3.*math.cos(2.*w0 + 2.*f0)))
+    
+    e1 = np.sqrt(d1**2. + d2**2.)
+    
+    i1 = 2.*math.asin(np.sqrt(d3**2. + d4**2.))
+    
+    RAAN1 = math.atan2(d3, d4)
+    
+    M1 = math.atan2(d1, d2)
+    
+    w1 = MwRAAN1 - RAAN1 - M1
+    
+    while w1 > 2.*math.pi:
+        w1 -= 2.*math.pi
+        
+    while w1 < 0.:
+        w1 += 2.*math.pi
+                             
+    
+    return a1, e1, i1, RAAN1, w1, M1
+
+
+def mean2ecc(M, e):
+    '''
+    This function converts from Mean Anomaly to Eccentric Anomaly
+
+    Parameters
+    ------
+    M : float
+      mean anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    E : float
+      eccentric anomaly [rad]
+    '''
+
+    # Ensure M is between 0 and 2*pi
+    M = math.fmod(M, 2*math.pi)
+    if M < 0:
+        M += 2*math.pi
+
+    # Starting guess for E
+    E = M + e*math.sin(M)/(1 - math.sin(M + e) + math.sin(M))
+
+    # Initialize loop variable
+    f = 1
+    tol = 1e-8
+
+    # Iterate using Newton-Raphson Method
+    while math.fabs(f) > tol:
+        f = E - e*math.sin(E) - M
+        df = 1 - e*math.cos(E)
+        E = E - f/df
+
+    return E
+
+
+def ecc2mean(E, e):
+    '''
+    This function converts from Eccentric Anomaly to Mean Anomaly
+
+    Parameters
+    ------
+    E : float
+      eccentric anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    M : float
+      mean anomaly [rad]
+    '''
+    
+    M = E - e*math.sin(E)
+    
+    return M
+
+
+def ecc2true(E, e):
+    '''
+    This function converts from Eccentric Anomaly to True Anomaly
+
+    Parameters
+    ------
+    E : float
+      eccentric anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    f : float
+      true anomaly [rad]
+    '''
+
+    f = 2*math.atan(np.sqrt((1+e)/(1-e))*math.tan(E/2))
+
+    return f
+
+
+def true2ecc(f, e):
+    '''
+    This function converts from True Anomaly to Eccentric Anomaly
+
+    Parameters
+    ------
+    f : float
+      true anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    E : float
+      eccentric anomaly [rad]
+    '''
+
+    E = 2*math.atan(np.sqrt((1-e)/(1+e))*math.tan(f/2))
+
+    return E
+
+
 
 if __name__ == '__main__':
     
     plt.close('all')
     
     
-    datafile = os.path.join('unit_test', 'damico_tsx_tdx_output.pkl')
+    datafile = os.path.join('unit_test', 'damico_tsx_tdx_output_inc97_M90_diff_A_m.pkl')
     
-    # test_damico_tsx_tdx(datafile)
+    test_damico_tsx_tdx(datafile)
     plot_damico_tsx_tdx(datafile)
 
