@@ -14,7 +14,20 @@ J2E = 1.082626683e-3
 Re = 6378137.0
 
 
-
+###############################################################################
+#
+# References
+#
+#   [1] D'Amico, S. and Montenbruck, O., "Proximity Operations of 
+#       Formation-Flying Spacecraft Using an Eccentricity/Inclination Vector
+#       Separation," JGCD 2006.
+#
+#   [2] Montenbruck, et al., "E/I-Vector Separation for Safe Switching of the
+#       GRACE Formation," AST 2006.
+#       
+#
+#
+###############################################################################
 
 
 def test_damico_tsx_tdx(datafile):
@@ -31,7 +44,7 @@ def test_damico_tsx_tdx(datafile):
     i = 97.*np.pi/180.                  # rad
     RAAN = 0.                           # rad
     w = 270.*np.pi/180.                 # rad
-    M = np.pi/2.  #0.                              # rad
+    M = np.pi/2.                        # rad
     P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
     
     # Orbit Differences
@@ -222,6 +235,7 @@ def test_damico_tsx_tdx(datafile):
     tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
     
     # Compute mean vectors and angles over time
+    # D'Amico Eqs 19-22
     phi = phi0 + dphi_dt*(tout - initial_time)
     dex_t = de*np.cos(phi)
     dey_t = de*np.sin(phi)
