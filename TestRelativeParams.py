@@ -209,7 +209,7 @@ def test_damico_tsx_tdx(datafile):
     
     state_params = {}
     state_params['mass_list'] = [m, m]
-    state_params['area_list'] = [A, 1.02*A]
+    state_params['area_list'] = [A, A]
     state_params['Cd_list'] = [Cd, Cd]
     state_params['Cr_list'] = [Cr, Cr]
     state_params['sph_deg'] = 20

@@ -38,6 +38,8 @@ from scipy.integrate import dblquad
 from scipy.special import erfcinv
 import pickle
 import time
+import pandas as pd
+import os
 
 import TudatPropagator as prop
 
@@ -80,6 +82,279 @@ def read_catalog_file(rso_file):
     pklFile.close()    
     
     return rso_dict
+
+
+def read_cdm_file(cdm_file):
+    '''
+    This function reads a text file containing for a Conjunction Data Message
+    (CDM) and returns a dictionary containing the same data, indexed by 
+    5 digit NORAD ID.
+    
+    Parameters
+    ------
+    cdm_file : string
+        path and filename of pickle file containing CDM data
+    
+    Returns
+    ------
+    cdm_data : dict
+        extracted CDM data including TCA, miss distance, Pc [meters, seconds] 
+    
+    '''
+    
+    cdm_data = {}
+    
+    with open(cdm_file) as file:
+        lines = [line.rstrip() for line in file]
+        
+    for ii in range(len(lines)):
+        line = lines[ii]
+                
+        try:
+            key, value = [x.strip() for x in line.split('=')]
+            
+
+            
+            if key == 'TCA':
+                cdm_data['TCA_UTC'] = datetime.fromisoformat(value)
+                
+            if key == 'MISS_DISTANCE':
+                md, unit = value.split()
+                cdm_data['MISS_DISTANCE'] = float(md)
+                
+            if key == 'RELATIVE_SPEED':
+                speed, unit = value.split()
+                cdm_data['RELATIVE_SPEED'] = float(speed)
+                
+            if key == 'RELATIVE_POSITION_R':
+                r_pos, unit = value.split()
+                r_pos = float(r_pos)
+                
+            if key == 'RELATIVE_POSITION_T':
+                t_pos, unit = value.split()
+                t_pos = float(t_pos)
+            
+            if key == 'RELATIVE_POSITION_N':
+                n_pos, unit = value.split()
+                n_pos = float(n_pos)
+                
+            if key == 'RELATIVE_VELOCITY_R':
+                r_vel, unit = value.split()
+                r_vel = float(r_vel)
+                
+            if key == 'RELATIVE_VELOCITY_T':
+                t_vel, unit = value.split()
+                t_vel = float(t_vel)
+                
+            if key == 'RELATIVE_VELOCITY_N':
+                n_vel, unit = value.split()
+                n_vel = float(n_vel)
+                
+            if key == 'COLLISION_PROBABILITY':
+                Pc = float(value)
+                
+            if key == 'OBJECT' and value == 'OBJECT1':
+                
+                # print('object 1')
+          
+                line = lines[ii+1]
+                key, value = [x.strip() for x in line.split('=')]
+                obj1_id = int(value)
+                X, P = read_cdm_state_covar(lines[ii:ii+38])
+                
+                cdm_data['obj1'] = {}
+                cdm_data['obj1']['obj_id'] = obj1_id
+                cdm_data['obj1']['X'] = X
+                cdm_data['obj1']['P'] = P
+                
+                ii += 38
+                
+            if key == 'OBJECT' and value == 'OBJECT2':
+                
+                # print('object 2')
+          
+                line = lines[ii+1]
+                key, value = [x.strip() for x in line.split('=')]
+                obj2_id = int(value)
+                X, P = read_cdm_state_covar(lines[ii:ii+38])
+                
+                cdm_data['obj2'] = {}
+                cdm_data['obj2']['obj_id'] = obj2_id
+                cdm_data['obj2']['X'] = X
+                cdm_data['obj2']['P'] = P
+                
+                
+        except:
+            continue
+        
+    rtn_pos = np.reshape([r_pos, t_pos, n_pos], (3,1))
+    rtn_vel = np.reshape([r_vel, t_vel, n_vel], (3,1))
+    cdm_data['rtn_pos'] = rtn_pos
+    cdm_data['rtn_vel'] = rtn_vel
+    cdm_data['Pc'] = Pc
+            
+    
+    print(cdm_data)
+    
+    return
+
+
+def read_cdm_state_covar(lines):
+    
+    for ii in range(len(lines)):
+        line = lines[ii]
+                
+        try:
+            key, value = [x.strip() for x in line.split('=')]
+                        
+            if key == 'X':
+                x_pos, unit = value.split()
+                x_pos = float(x_pos)
+                if unit == '[km]':
+                    x_pos *= 1000.
+            
+            if key == 'Y':
+                y_pos, unit = value.split()
+                y_pos = float(y_pos)
+                if unit == '[km]':
+                    y_pos *= 1000.
+                    
+            if key == 'Z':
+                z_pos, unit = value.split()
+                z_pos = float(z_pos)
+                if unit == '[km]':
+                    z_pos *= 1000.
+                    
+            if key == 'X_DOT':
+                x_vel, unit = value.split()
+                x_vel = float(x_vel)
+                if unit == '[km/s]':
+                    x_vel *= 1000.
+                    
+            if key == 'Y_DOT':
+                y_vel, unit = value.split()
+                y_vel = float(y_vel)
+                if unit == '[km/s]':
+                    y_vel *= 1000.
+                    
+            if key == 'Z_DOT':
+                z_vel, unit = value.split()
+                z_vel = float(z_vel)
+                if unit == '[km/s]':
+                    z_vel *= 1000.
+            
+            if key == 'CR_R':
+                CR_R, unit = value.split()
+                CR_R = float(CR_R)
+                
+            if key == 'CT_R':
+                CT_R, unit = value.split()
+                CT_R = float(CT_R)
+                
+            if key == 'CT_T':
+                CT_T, unit = value.split()
+                CT_T = float(CT_T)
+                
+            if key == 'CN_R':
+                CN_R, unit = value.split()
+                CN_R = float(CN_R)
+                
+            if key == 'CN_T':
+                CN_T, unit = value.split()
+                CN_T = float(CN_T)
+                
+            if key == 'CN_N':
+                CN_N, unit = value.split()
+                CN_N = float(CN_N)
+                
+            if key == 'CRDOT_R':
+                CRDOT_R, unit = value.split()
+                CRDOT_R = float(CRDOT_R)
+                
+            if key == 'CRDOT_T':
+                CRDOT_T, unit = value.split()
+                CRDOT_T = float(CRDOT_T)
+                
+            if key == 'CRDOT_N':
+                CRDOT_N, unit = value.split()
+                CRDOT_N = float(CRDOT_N)
+                
+            if key == 'CRDOT_RDOT':
+                CRDOT_RDOT, unit = value.split()
+                CRDOT_RDOT = float(CRDOT_RDOT)
+                
+            if key == 'CTDOT_R':
+                CTDOT_R, unit = value.split()
+                CTDOT_R = float(CTDOT_R)
+                
+            if key == 'CTDOT_T':
+                CTDOT_T, unit = value.split()
+                CTDOT_T = float(CTDOT_T)
+            
+            if key == 'CTDOT_N':
+                CTDOT_N, unit = value.split()
+                CTDOT_N = float(CTDOT_N)
+                
+            if key == 'CTDOT_RDOT':
+                CTDOT_RDOT, unit = value.split()
+                CTDOT_RDOT = float(CTDOT_RDOT)
+                
+            if key == 'CTDOT_TDOT':
+                CTDOT_TDOT, unit = value.split()
+                CTDOT_TDOT = float(CTDOT_TDOT)
+                
+            if key == 'CNDOT_R':
+                CNDOT_R, unit = value.split()
+                CNDOT_R = float(CNDOT_R)
+                
+            if key == 'CNDOT_T':
+                CNDOT_T, unit = value.split()
+                CNDOT_T = float(CNDOT_T)
+                
+            if key == 'CNDOT_N':
+                CNDOT_N, unit = value.split()
+                CNDOT_N = float(CNDOT_N)
+                
+            if key == 'CNDOT_RDOT':
+                CNDOT_RDOT, unit = value.split()
+                CNDOT_RDOT = float(CNDOT_RDOT)
+                
+            if key == 'CNDOT_TDOT':
+                CNDOT_TDOT, unit = value.split()
+                CNDOT_TDOT = float(CNDOT_TDOT)
+                
+            if key == 'CNDOT_NDOT':
+                CNDOT_NDOT, unit = value.split()
+                CNDOT_NDOT = float(CNDOT_NDOT)
+            
+        except:
+            continue
+        
+    X = np.reshape([x_pos, y_pos, z_pos, x_vel, y_vel, z_vel], (6,1))
+    P = np.zeros((6,6))
+    P[0,0] = CR_R
+    P[1,1] = CT_T
+    P[2,2] = CN_N
+    P[3,3] = CRDOT_RDOT
+    P[4,4] = CTDOT_TDOT
+    P[5,5] = CNDOT_NDOT
+    P[0,1] = P[1,0] = CT_R
+    P[0,2] = P[2,0] = CN_R
+    P[0,3] = P[3,0] = CRDOT_R
+    P[0,4] = P[4,0] = CTDOT_R
+    P[0,5] = P[5,0] = CNDOT_R
+    P[1,2] = P[2,1] = CN_T
+    P[1,3] = P[3,1] = CRDOT_T
+    P[1,4] = P[4,1] = CTDOT_T
+    P[1,5] = P[5,1] = CNDOT_T
+    P[2,3] = P[3,2] = CRDOT_N
+    P[2,4] = P[4,2] = CTDOT_N
+    P[2,5] = P[5,2] = CNDOT_N
+    P[3,4] = P[4,3] = CTDOT_RDOT
+    P[3,5] = P[5,3] = CNDOT_RDOT
+    P[4,5] = P[5,4] = CNDOT_TDOT
+    
+    return X, P
 
 
 ###############################################################################
@@ -979,4 +1254,8 @@ def unit_test_tca():
 
 if __name__ == '__main__':
     
-    unit_test_tca()
+    # unit_test_tca()
+    
+    cdm_dir = r'data\cdm'
+    fname = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+    read_cdm_file(fname)
