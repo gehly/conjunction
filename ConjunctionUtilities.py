@@ -41,6 +41,8 @@ import time
 import pandas as pd
 import os
 
+from tudatpy.astro import time_conversion
+
 import TudatPropagator as prop
 
 ###############################################################################
@@ -105,7 +107,8 @@ def read_cdm_file(cdm_file):
     cdm_data = {}
     
     with open(cdm_file) as file:
-        lines = [line.rstrip() for line in file]
+        lines = [line.rstrip() for line in file]        
+    
         
     for ii in range(len(lines)):
         line = lines[ii]
@@ -152,51 +155,44 @@ def read_cdm_file(cdm_file):
                 
             if key == 'COLLISION_PROBABILITY':
                 Pc = float(value)
+                cdm_data['Pc'] = Pc
                 
             if key == 'OBJECT' and value == 'OBJECT1':
+                obj1_ind = ii
+
                 
-                # print('object 1')
-          
-                line = lines[ii+1]
-                key, value = [x.strip() for x in line.split('=')]
-                obj1_id = int(value)
-                X, P = read_cdm_state_covar(lines[ii:ii+38])
-                
-                cdm_data['obj1'] = {}
-                cdm_data['obj1']['obj_id'] = obj1_id
-                cdm_data['obj1']['X'] = X
-                cdm_data['obj1']['P'] = P
-                
-                ii += 38
-                
-            if key == 'OBJECT' and value == 'OBJECT2':
-                
-                # print('object 2')
-          
-                line = lines[ii+1]
-                key, value = [x.strip() for x in line.split('=')]
-                obj2_id = int(value)
-                X, P = read_cdm_state_covar(lines[ii:ii+38])
-                
-                cdm_data['obj2'] = {}
-                cdm_data['obj2']['obj_id'] = obj2_id
-                cdm_data['obj2']['X'] = X
-                cdm_data['obj2']['P'] = P
-                
+            if key == 'OBJECT' and value == 'OBJECT2':             
+                obj2_ind = ii
                 
         except:
             continue
         
+    # Store output data 
     rtn_pos = np.reshape([r_pos, t_pos, n_pos], (3,1))
     rtn_vel = np.reshape([r_vel, t_vel, n_vel], (3,1))
     cdm_data['rtn_pos'] = rtn_pos
     cdm_data['rtn_vel'] = rtn_vel
-    cdm_data['Pc'] = Pc
-            
     
-    print(cdm_data)
+    # Retrieve data for object 1
+    lines_obj1 = lines[obj1_ind:obj2_ind] 
+    obj1_id, X1, P1 = read_cdm_state_covar(lines_obj1)
     
-    return
+    cdm_data['obj1'] = {}
+    cdm_data['obj1']['obj_id'] = obj1_id
+    cdm_data['obj1']['X'] = X1
+    cdm_data['obj1']['P'] = P1
+    
+    # Retrieve data for object 2
+    lines_obj2 = lines[obj2_ind:] 
+    obj2_id, X2, P2 = read_cdm_state_covar(lines_obj2)
+    
+    cdm_data['obj2'] = {}
+    cdm_data['obj2']['obj_id'] = obj2_id
+    cdm_data['obj2']['X'] = X2
+    cdm_data['obj2']['P'] = P2
+
+    
+    return cdm_data
 
 
 def read_cdm_state_covar(lines):
@@ -206,6 +202,9 @@ def read_cdm_state_covar(lines):
                 
         try:
             key, value = [x.strip() for x in line.split('=')]
+            
+            if key == 'OBJECT_DESIGNATOR':
+                obj_id = int(value)
                         
             if key == 'X':
                 x_pos, unit = value.split()
@@ -354,7 +353,50 @@ def read_cdm_state_covar(lines):
     P[3,5] = P[5,3] = CNDOT_RDOT
     P[4,5] = P[5,4] = CNDOT_TDOT
     
-    return X, P
+    return obj_id, X, P
+
+
+def retrieve_conjunction_data_at_tca(cdm_file=''):
+    '''
+    This function retrieves the epoch and state vectors at TCA.
+    
+    Parameters
+    ------
+    cdm_file : string, optional
+        path and filename of CDM data file (default='')
+    
+    '''
+    
+    # If a CDM is provided, parse and retrieve object data
+    if len(cdm_file) > 0:
+        cdm_data = read_cdm_file(cdm_file)
+        TCA_UTC = cdm_data['TCA_UTC']
+        X1 = cdm_data['obj1']['X']
+        X2 = cdm_data['obj2']['X']
+        
+        # Convert TCA to seconds from epoch in TDB
+        tudat_datetime_utc = time_conversion.datetime_to_tudat(TCA_UTC)
+        time_scale_converter = time_conversion.default_time_scale_converter()
+        TCA_epoch_utc = tudat_datetime_utc.epoch()
+        TCA_epoch_tdb = time_scale_converter.convert_time(
+                        input_scale = time_conversion.utc_scale,
+                        output_scale = time_conversion.tdb_scale,
+                        input_value = TCA_epoch_utc)
+        
+    # Otherwise, retrieve data from other source
+        
+    
+    return TCA_epoch_tdb, X1, X2
+
+
+###############################################################################
+# Initialize Parameters
+###############################################################################
+
+def initialize_covar(Xo, state_params, int_params, bodies):
+    
+    
+    return
 
 
 ###############################################################################
@@ -701,8 +743,6 @@ def compute_TCA(X1, X2, trange, rso1_params, rso2_params, int_params,
         rho_list = [rho_list[ii] for ii in sorted_inds]
     
     return T_list, rho_list
-
-
 
 
 def gvec_tudat(t0, tvec, X1, X2, rso1_params, rso2_params, int_params, bodies):

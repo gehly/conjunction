@@ -54,6 +54,75 @@ def tudat_initialize_bodies(bodies_to_create=[]):
     return bodies
 
 
+def initialize_propagator(tudat_integrator):
+    '''
+    This function sets up default settings for the tudat integrator and 
+    propagator. 
+    
+    Parameters
+    ------
+    tudat_integrator : string
+        choose from 'rk4', 'rk78', 'rkdp87'
+        
+    Returns
+    ------
+    state_params : dictionary
+        physical parameters for propagator (SH deg/ord, Cd, Cr, mass, area)
+    int_params : dictionary
+        integrator parameters including step size and tolerances
+    
+    '''
+    
+    # Default settings
+    bodies_to_create = ['Earth', 'Sun', 'Moon']
+    bodies = tudat_initialize_bodies(bodies_to_create)
+    
+    state_params = {}
+    state_params['central_bodies'] = ['Earth']
+    state_params['bodies_to_create'] = bodies_to_create
+    state_params['mass_list'] = [100.]
+    state_params['area_list'] = [1.]
+    state_params['Cd_list'] = [2.2]
+    state_params['Cr_list'] = [1.3]
+    state_params['sph_deg'] = 20
+    state_params['sph_ord'] = 20   
+    
+    # Choose integrator
+    
+    # RK4
+    if tudat_integrator == 'rk4':        
+        int_params = {}
+        int_params['tudat_integrator'] = 'rk4'
+        int_params['step'] = 1.
+    
+    # RK78 Variable
+    elif tudat_integrator == 'rkf78': 
+        int_params = {}
+        int_params['tudat_integrator'] = 'rkf78'
+        int_params['step'] = 10.
+        int_params['max_step'] = 1000.
+        int_params['min_step'] = 1e-3
+        int_params['rtol'] = 1e-12
+        int_params['atol'] = 1e-12
+    
+    # DP87 Variable
+    elif tudat_integrator == 'rkdp87':
+        int_params = {}
+        int_params['tudat_integrator'] = 'rkdp87'
+        int_params['step'] = 10.
+        int_params['max_step'] = 1000.
+        int_params['min_step'] = 1e-3
+        int_params['rtol'] = 1e-12
+        int_params['atol'] = 1e-12
+        
+    else:
+        print('error: invalid input')
+        print(tudat_integrator)
+    
+    
+    return state_params, int_params, bodies
+
+
 def propagate_orbit(Xo, tvec, state_params, int_params, bodies=None):
     '''
     This function propagates an orbit using physical parameters provided in 
