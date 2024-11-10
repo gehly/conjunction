@@ -224,6 +224,20 @@ def propagate_orbit(Xo, tvec, state_params, int_params, bodies=None):
             maximum_step_size,
             rtol,
             atol)
+        
+    elif int_params['tudat_integrator'] == 'rkdp87':
+        initial_step_size = int_params['step']
+        maximum_step_size = int_params['max_step']
+        minimum_step_size = int_params['min_step']
+        rtol = int_params['rtol']
+        atol = int_params['atol']
+        integrator_settings = propagation_setup.integrator.runge_kutta_variable_step_size(
+            initial_step_size,
+            propagation_setup.integrator.CoefficientSets.rkdp_87,
+            minimum_step_size,
+            maximum_step_size,
+            rtol,
+            atol)
     
         
         
