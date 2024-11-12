@@ -60,6 +60,7 @@ import sensors.measurement_functions as mfunc
 from utilities import eop_functions as eop
 # from utilities import time_systems as timesys
 # from utilities import tle_functions as tle
+from utilities.constants import GME
 
 
 ###############################################################################
@@ -419,19 +420,33 @@ def perturb_state_vector(Xo, P):
     return Xf
 
 
-def filter_setup(Xo, tvec):    
+def filter_setup(Xo, tvec, noise):    
     
-    # Initialize default parameters
-    state_params, int_params, bodies = prop.initialize_tudat('rkdp87')
+    # # Initialize default parameters
+    # state_params, int_params, bodies = prop.initialize_tudat('rkdp87')
     
-    # Update for GPS measurement simulation
-    step = 30.
-    tol = np.inf
-    int_params['step'] = step
-    int_params['max_step'] = step
-    int_params['min_step'] = step
-    int_params['atol'] = tol
-    int_params['rtol'] = tol
+    # # Update for GPS measurement simulation
+    # step = 30.
+    # tol = np.inf
+    # int_params['step'] = step
+    # int_params['max_step'] = step
+    # int_params['min_step'] = step
+    # int_params['atol'] = tol
+    # int_params['rtol'] = tol
+    
+    # Define state parameters
+    state_params = {}
+    state_params['GM'] = GME*1e9
+    
+    # Define integrator parameters
+    int_params = {}
+    int_params['integrator'] = 'solve_ivp'
+    int_params['ode_integrator'] = 'DOP853'
+    int_params['intfcn'] = dyn.ode_twobody
+    
+    int_params['rtol'] = 1e-12
+    int_params['atol'] = 1e-12
+    int_params['time_format'] = 'seconds'
     
 
     # Filter parameters
@@ -450,14 +465,16 @@ def filter_setup(Xo, tvec):
     sensor_params[sensor_id]['meas_types'] = meas_types
     
     sigma_dict = {}
-    sigma_dict['x'] = 1.
-    sigma_dict['y'] = 1.
-    sigma_dict['z'] = 1.
+    sigma_dict['x'] = noise
+    sigma_dict['y'] = noise
+    sigma_dict['z'] = noise
     sensor_params[sensor_id]['sigma_dict'] = sigma_dict
         
     # Propagate orbit
-    tout, X_truth = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
-        
+    # tout, X_truth = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
+    tout, X_truth = dyn.general_dynamics(Xo, tvec, state_params, int_params)  
+    
+    
     truth_dict = {}
     meas_dict = {}
     meas_dict['tk_list'] = []
@@ -495,10 +512,33 @@ def filter_setup(Xo, tvec):
     return state_dict, meas_dict, params_dict, truth_dict
 
 
-def initialize_covar(Xo, state_params, int_params, bodies):
+def run_filter(state_dict, truth_dict, meas_dict, meas_fcn, params_dict):
+    
+    params_dict['int_params']['intfcn'] = dyn.ode_twobody_stm
+    filter_output, full_state_output = est.ls_batch(state_dict, truth_dict, meas_dict, meas_fcn, params_dict)    
+    # analysis.compute_orbit_errors(filter_output, full_state_output, truth_dict)
+    
+    t0 = sorted(list(state_dict.keys()))[0]
+    Xo = filter_output[t0]['X']
+    Po = filter_output[t0]['P']
+    
+    return Xo, Po
+
+
+def initialize_covar(t0, Xo, thrs=3., interval=300., noise=1.):
+        
+    # Setup time vector for simulated GPS measurements
+    tvec = np.arange(t0, t0 + (3600.*thrs), interval)
+    
+    # Initialize parameter dictionaries
+    state_dict, meas_dict, params_dict, truth_dict = filter_setup(Xo, tvec, noise)
+    
+    # Run filter
+    meas_fcn = mfunc.H_inertial_xyz
+    Xo, Po = run_filter(state_dict, truth_dict, meas_dict, meas_fcn, params_dict)
     
     
-    return
+    return Po
 
 
 ###############################################################################
