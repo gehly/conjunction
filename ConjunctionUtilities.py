@@ -40,10 +40,27 @@ import pickle
 import time
 import pandas as pd
 import os
+import sys
 
 from tudatpy.astro import time_conversion
 
 import TudatPropagator as prop
+
+metis_dir = r'C:\Users\sgehly\Documents\code\metis'
+sys.path.append(metis_dir)
+
+# import estimation.analysis_functions as analysis
+import estimation.estimation_functions as est
+import dynamics.dynamics_functions as dyn
+import sensors.measurement_functions as mfunc
+# import sensors.sensors as sens
+# import sensors.visibility_functions as visfunc
+# from utilities import astrodynamics as astro
+# from utilities import coordinate_systems as coord
+from utilities import eop_functions as eop
+# from utilities import time_systems as timesys
+# from utilities import tle_functions as tle
+
 
 ###############################################################################
 # Basic I/O
@@ -392,6 +409,91 @@ def retrieve_conjunction_data_at_tca(cdm_file=''):
 ###############################################################################
 # Initialize Parameters
 ###############################################################################
+
+
+def perturb_state_vector(Xo, P):
+    
+    pert_vect = np.multiply(np.sqrt(np.diag(P)), np.random.randn(6,))
+    Xf = Xo + pert_vect.reshape(Xo.shape)
+    
+    return Xf
+
+
+def filter_setup(Xo, tvec):    
+    
+    # Initialize default parameters
+    state_params, int_params, bodies = prop.initialize_tudat('rkdp87')
+    
+    # Update for GPS measurement simulation
+    step = 30.
+    tol = np.inf
+    int_params['step'] = step
+    int_params['max_step'] = step
+    int_params['min_step'] = step
+    int_params['atol'] = tol
+    int_params['rtol'] = tol
+    
+
+    # Filter parameters
+    filter_params = {}
+    filter_params['Q'] = 1e-16 * np.diag([1, 1, 1])
+    filter_params['gap_seconds'] = 900.
+    filter_params['alpha'] = 1e-4
+    filter_params['pnorm'] = 2.
+    
+    # Sensor and measurement parameters
+    sensor_id = 'GPS'
+    sensor_params = {}
+    sensor_params[sensor_id] = {}
+    
+    meas_types = ['x', 'y', 'z']
+    sensor_params[sensor_id]['meas_types'] = meas_types
+    
+    sigma_dict = {}
+    sigma_dict['x'] = 1.
+    sigma_dict['y'] = 1.
+    sigma_dict['z'] = 1.
+    sensor_params[sensor_id]['sigma_dict'] = sigma_dict
+        
+    # Propagate orbit
+    tout, X_truth = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
+        
+    truth_dict = {}
+    meas_dict = {}
+    meas_dict['tk_list'] = []
+    meas_dict['Yk_list'] = []
+    meas_dict['sensor_id_list'] = []
+    
+    for kk in range(len(tout)):
+        
+        Xk = X_truth[kk,0:6].reshape(6,1)
+        truth_dict[tout[kk]] = Xk
+        
+        Yk = Xk[0:3].reshape(3,1)
+        for mtype in meas_types:
+            ind = meas_types.index(mtype)
+            Yk[ind] += np.random.randn()*sigma_dict[mtype]        
+            
+        meas_dict['tk_list'].append(tout[kk])
+        meas_dict['Yk_list'].append(Yk)
+        meas_dict['sensor_id_list'].append(sensor_id)            
+    
+    params_dict = {}
+    params_dict['state_params'] = state_params
+    params_dict['filter_params'] = filter_params
+    params_dict['int_params'] = int_params
+    params_dict['sensor_params'] = sensor_params
+    
+    # Initial state for filter
+    P = np.diag([1e6, 1e6, 1e6, 1., 1., 1.])
+    state_dict = {}
+    state_dict[tout[0]] = {}
+    state_dict[tout[0]]['X'] = perturb_state_vector(Xo, P)
+    state_dict[tout[0]]['P'] = P
+    
+    
+    return state_dict, meas_dict, params_dict, truth_dict
+
 
 def initialize_covar(Xo, state_params, int_params, bodies):
     
