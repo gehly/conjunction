@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import os
 from datetime import datetime
 import time
@@ -8,6 +9,11 @@ import EstimationUtilities as EstUtil
 import TudatPropagator as prop
 import ConjunctionUtilities as ConjUtil
 import ConjunctionSimulator as ConjSim
+
+# Earth parameters
+GME = 398600.4415*1e9  # m^3/s^2
+J2E = 1.082626683e-3
+Re = 6378137.0
 
 ###############################################################################
 # Basic I/O
@@ -329,11 +335,67 @@ def unit_test_initialize_covar():
     return
 
 
+def damico_test_case_params():    
+    
+    # Constants
+    Cd = 2.3                # unitless
+    Cr = 1.3                # unitless
+    A = 3.2                 # m^2
+    m = 1238.                # kg
+    
+    # Chief Orbit Parameters
+    a = 6892.945*1000.                  # m
+    e = 1e-8
+    i = 97.*np.pi/180.                  # rad
+    RAAN = 0.                           # rad
+    w = 270.*np.pi/180.                 # rad
+    M = np.pi/2.                        # rad
+    P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
+    
+    # Orbit Differences
+    di_x = 0.
+    di_y = -1000./a             # rad
+    di = 0.                     # rad
+    dRAAN = (di_y/np.sin(i))    # rad
+    
+    de_x = 0.
+    de_y = 300./a                       # non-dim
+    de = np.linalg.norm([de_x, de_y])   # non-dim
+    
+    # Compute initial relative angles (vector coordinates in Orbit Frame 1)
+    # theta gives angle between N1 (asc node) and N12 (relative asc node)
+    # phi gives angle between N1 and de vector
+    theta0 = math.atan2(di_y, di_x)      # rad
+    phi0 = math.atan2(de_y, de_x)        # rad
+    
+    # Compute mean rate of change of angles due to J2 (D'Amico Eqs 20-22)
+    dphi_dt = 1.5*(np.pi/P)*(Re**2./a**2.)*J2E*(5.*np.cos(i)**2. - 1)
+    diy_dt = -3.*(np.pi/P)*(Re**2./a**2.)*J2E*np.sin(i)**2.*di
+    
+    # Deputy Orbit
+    a2 = a + 0.
+    e2 = e + de
+    i2 = i + di                         # rad
+    RAAN2 = RAAN + dRAAN                # rad
+    w2 = 90*np.pi/180.                  # rad
+    M2 = M + np.pi                      # rad
+    
+    osc_elem1 = [a, e, i, RAAN, w, M]
+    osc_elem2 = [a2, e2, i2, RAAN2, w2, M2]
+    
+    X1 = ConjUtil.kep2cart(osc_elem1, GME)
+    X2 = ConjUtil.kep2cart(osc_elem2, GME)
+    
+    return X1, X2
+
+
 def unit_test_relative_ei_vector():
     
     # Initial state vector
     cdm_dir = r'data\cdm'
     cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+    # cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187776000.cdm')
+    # cdm_file = os.path.join(cdm_dir, '2024-09-13--10--31698-36605.1726221677000.cdm')
     TCA_epoch_tdb, X1, X2 = ConjUtil.retrieve_conjunction_data_at_tca(cdm_file)
     
     # Default integrator/propagator settings
@@ -356,49 +418,103 @@ def unit_test_relative_ei_vector():
     
     # Inertial state vectors at t0
     X1_0 = Xback1[0,:].reshape(6,1)
-    X2_0 = Xback2[1,:].reshape(6,1)
-    d2 = np.linalg.norm(X1_0[0:3] - X2_0[0:3])
+    X2_0 = Xback2[0,:].reshape(6,1)
+    
+    
+    # # D'Amico TSX/TDX setup
+    # t0 = 0.
+    # X1_0, X2_0 = damico_test_case_params()
+    
+    # Compute initial orbits and separation
+    d2 = np.linalg.norm(X1_0[0:3] - X2_0[0:3])    
+    elem1 = ConjUtil.cart2kep(X1_0)
+    elem2 = ConjUtil.cart2kep(X2_0)
+    
+    print('elem1', elem1)
+    print('elem2', elem2)
+
     
     # Generate the initial covariances
-    dum, P1_0 = ConjUtil.initialize_covar(t0, X1_0, thrs=3., interval=300., noise=1.)
-    dum, P2_0 = ConjUtil.initialize_covar(t0, X2_0, thrs=3., interval=300., noise=1.)
+    dum, P1_0 = ConjUtil.initialize_covar(t0, X1_0, thrs=3., interval=300., noise=10.)
+    dum, P2_0 = ConjUtil.initialize_covar(t0, X2_0, thrs=3., interval=300., noise=10.)
     
     # Compute relative e/i vectors and separation angle for mean states
-    angle, de_vect_of, di_vect_of = ConjUtil.inertial2relative_ei(X1, X2, GM=3.986004415e14)
+    angle, de_vect_of, di_vect_of = ConjUtil.inertial2relative_ei(X1_0, X2_0, GM=GME)
     
     print('')
+    print('X1_0', X1_0)
+    print('X2_0', X2_0)
+    print('P1 std', np.sqrt(np.diag(P1_0)))
+    print('P2 std', np.sqrt(np.diag(P2_0)))
     print('separation distance [m]', d2)
     print('e/i angle [deg]', angle*180/np.pi)
     print('de_vect_of', de_vect_of)
     print('di_vect_of', di_vect_of)
     
-    # Generate samples
-    N = 10
+    # Generate samples and compute e/i vectors and separation angle
+    N = 10000
     samples1 = np.random.default_rng().multivariate_normal(X1_0.flatten(), P1_0, N)
     samples2 = np.random.default_rng().multivariate_normal(X2_0.flatten(), P2_0, N)
+    dex_list = []
+    dey_list = []
+    dix_list = []
+    diy_list = []
+    angle_list = []
+    for ii in range(N):
+        s1_ii = samples1[ii,:].reshape(6,1)
+        s2_ii = samples2[ii,:].reshape(6,1)
+        
+        angle_ii, de_vect_ii, di_vect_ii = ConjUtil.inertial2relative_ei(s1_ii, s2_ii, GM=GME)
+        
+        # print(s1_ii)
+        # print(s2_ii)
+        # print(angle_ii*180/np.pi)
+        # print(de_vect_ii)
+        # print(di_vect_ii)
+        
+        # mistake
+    
+        dex_list.append(float(de_vect_ii[0,0]))
+        dey_list.append(float(de_vect_ii[1,0]))
+        dix_list.append(float(di_vect_ii[0,0]))
+        diy_list.append(float(di_vect_ii[1,0]))
+        angle_list.append(angle_ii*180./np.pi)
+        
+        
+    print('')
+    print('mean angle [deg]', np.mean(angle_list))
+    print('angle std [deg]', np.std(angle_list))
     
     
+    dex_lim = max([abs(dex) for dex in dex_list])
+    dey_lim = max([abs(dey) for dey in dey_list])
+    dix_lim = max([abs(dix) for dix in dix_list])
+    diy_lim = max([abs(diy) for diy in diy_list])
     
-    
-    
-    
+    de_lim = max(dex_lim, dey_lim)*2
+    di_lim = max(dix_lim, diy_lim)*2
     
     # Generate plots
     plt.figure()
+    plt.plot(dex_list, dey_list, 'k.')
     plt.plot([0, de_vect_of[0,0]], [0, de_vect_of[1,0]], 'r')
-    plt.xlim([-3e-5, 3e-5])
-    plt.ylim([-3e-5, 3e-5])  
+    plt.xlim([-de_lim, de_lim])
+    plt.ylim([-de_lim, de_lim])  
     plt.xlabel('de[x]')
     plt.ylabel('de[y]')
     plt.grid()
     
     plt.figure()
+    plt.plot(dix_list, diy_list, 'k.')
     plt.plot([0, di_vect_of[0,0]], [0, di_vect_of[1,0]], 'r')
-    plt.xlim([-3e-5, 3e-5])
-    plt.ylim([-3e-5, 3e-5])  
+    plt.xlim([-di_lim, di_lim])
+    plt.ylim([-di_lim, di_lim])  
     plt.xlabel('di[x]')
     plt.ylabel('di[y]')
     plt.grid()
+    
+    plt.figure()
+    plt.hist(angle_list)
     
     
     plt.show()

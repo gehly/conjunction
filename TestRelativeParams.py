@@ -1204,7 +1204,7 @@ if __name__ == '__main__':
     plt.close('all')
     
     
-    datafile = os.path.join('unit_test', 'damico_tsx_tdx_output_inc97_M90_diff_A_m.pkl')
+    datafile = os.path.join('data/unit_test_relative_e_i', 'damico_tsx_tdx_output_inc97_M90_same_A_m.pkl')
     
     test_damico_tsx_tdx(datafile)
     plot_damico_tsx_tdx(datafile)

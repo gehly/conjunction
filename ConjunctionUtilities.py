@@ -26,6 +26,13 @@
 #
 #  [6] Alfano, S., "Satellite Conjuction Monte Carlo Analysis," AAS Spaceflight
 #      Mechanics Meeting (AAS-09-233), 2009.
+#
+#  [7] D'Amico, S. and Montenbruck, O., "Proximity Operations of 
+#      Formation-Flying Spacecraft Using an Eccentricity/Inclination Vector
+#      Separation," JGCD 2006.
+#
+#  [8] Montenbruck, et al., "E/I-Vector Separation for Safe Switching of the
+#      GRACE Formation," AST 2006.
 #  
 #
 #
@@ -616,8 +623,8 @@ def inertial2relative_ei(X1, X2, GM=3.986004415e14):
     R3 = compute_R3(RAAN)
     OF1_ECI = R1 @ R3
     
-    print('i', i*180/np.pi)
-    print('RAAN', RAAN*180/np.pi)
+    # print('i', i*180/np.pi)
+    # print('RAAN', RAAN*180/np.pi)
     
     # Rotate e/i vectors to Orbit Frame 1
     de_vect_of = np.dot(OF1_ECI, de_vect_eci)
@@ -625,7 +632,42 @@ def inertial2relative_ei(X1, X2, GM=3.986004415e14):
     angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
     angle_check = np.arccos(np.dot(de_vect_eci.flatten(), di_vect_eci.flatten())/(np.linalg.norm(de_vect_eci)*np.linalg.norm(di_vect_eci)))
     
+    if abs(angle - angle_check) > 1e-8:
+        mistake
+    
     return angle, de_vect_of, di_vect_of
+
+
+def kep2relative_ei(kep1, kep2):
+    
+    # Retrieve inputs
+    kep1 = np.reshape(kep1, (6,))
+    kep2 = np.reshape(kep2, (6,))
+    
+    ecc1 = kep1[1]
+    inc1 = kep1[2]
+    RAAN1 = kep1[3]
+    AOP1 = kep1[4]
+    
+    ecc2 = kep2[1]
+    inc2 = kep2[2]
+    RAAN2 = kep2[3]
+    AOP2 = kep2[4]
+    
+    # D'Amico Eq 3
+    di = inc2 - inc1
+    dRAAN = RAAN2 - RAAN1
+    di_vect = np.array([[di], [dRAAN*np.sin(inc1)]])
+    
+    # D'Amico Eq 5-6
+    e1_vect = ecc1*np.array([[np.cos(AOP1)], [np.sin(AOP1)]])
+    e2_vect = ecc2*np.array([[np.cos(AOP2)], [np.sin(AOP2)]])
+    de_vect = e2_vect - e1_vect
+    
+    angle = np.arccos(np.dot(de_vect.flatten(), di_vect.flatten())/(np.linalg.norm(de_vect)*np.linalg.norm(di_vect)))
+    
+    
+    return angle, de_vect, di_vect
 
 
 def compute_R1(theta):
@@ -824,12 +866,6 @@ def remediate_covariance(Praw, Lclip, Lraw=[], Vraw=[]):
     
     
     return Prem, Pdet, Pinv, posdef_status, clip_status
-
-
-###############################################################################
-#
-###############################################################################
-
 
 
 ###############################################################################
