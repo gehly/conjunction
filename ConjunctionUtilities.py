@@ -60,7 +60,7 @@ import sensors.measurement_functions as mfunc
 from utilities import eop_functions as eop
 # from utilities import time_systems as timesys
 # from utilities import tle_functions as tle
-from utilities.constants import GME
+# from utilities.constants import GME
 
 
 ###############################################################################
@@ -436,7 +436,7 @@ def filter_setup(Xo, tvec, noise):
     
     # Define state parameters
     state_params = {}
-    state_params['GM'] = GME*1e9
+    state_params['GM'] = 3.986004415e14
     
     # Define integrator parameters
     int_params = {}
@@ -553,6 +553,13 @@ def compute_euclidean_distance(r_A, r_B):
     return d
 
 
+def compute_relative_velocity(v_A, v_B):
+    
+    v = np.linalg.norm(v_A - v_B)
+    
+    return v
+
+
 def compute_mahalanobis_distance(r_A, r_B, P_A, P_B):    
     
     Psum = P_A + P_B
@@ -573,7 +580,7 @@ def compute_RTN_posvel():
 ###############################################################################
 
 
-def inertial2relative_ei(rc_vect, vc_vect, rd_vect, vd_vect, GM=GME):
+def inertial2relative_ei(X1, X2, GM=3.986004415e14):
     '''
     This function converts inertial Cartesian position and velocity vectors of 
     two space objects into relative eccentricity and inclination vectors, also
@@ -581,11 +588,11 @@ def inertial2relative_ei(rc_vect, vc_vect, rd_vect, vd_vect, GM=GME):
     
     '''
     
-    # Reshape inputs if needed
-    rc_vect = np.reshape(rc_vect, (3,1))
-    vc_vect = np.reshape(vc_vect, (3,1))
-    rd_vect = np.reshape(rd_vect, (3,1))
-    vd_vect = np.reshape(vd_vect, (3,1))
+    # Reshape inputs 
+    rc_vect = X1[0:3].reshape(3,1)
+    vc_vect = X1[3:6].reshape(3,1)
+    rd_vect = X2[0:3].reshape(3,1)
+    vd_vect = X2[3:6].reshape(3,1)
     
     # Compute angular momentum unit vectors
     hc_vect = np.cross(rc_vect, vc_vect, axis=0)
@@ -598,13 +605,27 @@ def inertial2relative_ei(rc_vect, vc_vect, rd_vect, vd_vect, GM=GME):
     ed_vect = np.cross(vd_vect, hd_vect, axis=0)/GM - rd_vect/np.linalg.norm(rd_vect)
     
     # Compute relative ecc/inc vectors in inertial frame
-    di_vect = np.cross(ih_c, ih_d, axis=0)
-    de_vect = ed_vect - ec_vect  
+    di_vect_eci = np.cross(ih_c, ih_d, axis=0)
+    de_vect_eci = ed_vect - ec_vect 
     
-    # Compute separation angle
-    angle = np.arccos(np.dot(de_vect.flatten(), di_vect.flatten())/(np.linalg.norm(de_vect)*np.linalg.norm(di_vect)))
+    # Rotation matrix from ECI to Orbit Frame 1
+    elem1 = cart2kep(X1, GM)
+    i = float(elem1[2])
+    RAAN = float(elem1[3])
+    R1 = compute_R1(i)    
+    R3 = compute_R3(RAAN)
+    OF1_ECI = R1 @ R3
     
-    return angle, de_vect, di_vect
+    print('i', i*180/np.pi)
+    print('RAAN', RAAN*180/np.pi)
+    
+    # Rotate e/i vectors to Orbit Frame 1
+    de_vect_of = np.dot(OF1_ECI, de_vect_eci)
+    di_vect_of = np.dot(OF1_ECI, di_vect_eci)
+    angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
+    angle_check = np.arccos(np.dot(de_vect_eci.flatten(), di_vect_eci.flatten())/(np.linalg.norm(de_vect_eci)*np.linalg.norm(di_vect_eci)))
+    
+    return angle, de_vect_of, di_vect_of
 
 
 def compute_R1(theta):
@@ -1242,6 +1263,196 @@ def compute_SMA(cart, GM=3.986004415e14):
     a = 1./(2./r - v2/GM)        
     
     return a
+
+
+###############################################################################
+# General Utilities
+###############################################################################
+
+def kep2cart(elem, GM=3.986004415e14):
+    '''
+    This function converts a vector of Keplerian orbital elements to a
+    Cartesian state vector in inertial frame.
+    
+    Parameters
+    ------
+    elem : 6x1 numpy array
+    
+    Keplerian Orbital Elements
+    ------
+    elem[0] : a
+      Semi-Major Axis             [m]
+    elem[1] : e
+      Eccentricity                [unitless]
+    elem[2] : i
+      Inclination                 [rad]
+    elem[3] : RAAN
+      Right Asc Ascending Node    [rad]
+    elem[4] : w
+      Argument of Periapsis       [rad]
+    elem[5] : theta
+      True Anomaly                [rad]
+      
+      
+    Returns
+    ------
+    cart : 6x1 numpy array
+    
+    Cartesian Coordinates (Inertial Frame)
+    ------
+    cart[0] : x
+      Position in x               [m]
+    cart[1] : y
+      Position in y               [m]
+    cart[2] : z
+      Position in z               [m]
+    cart[3] : dx
+      Velocity in x               [m/s]
+    cart[4] : dy
+      Velocity in y               [m/s]
+    cart[5] : dz
+      Velocity in z               [m/s]  
+      
+    '''
+    
+    # Retrieve input elements
+    a = float(elem[0])
+    e = float(elem[1])
+    i = float(elem[2])
+    RAAN = float(elem[3])
+    w = float(elem[4])
+    theta = float(elem[5])
+
+    # Calculate h and r
+    p = a*(1 - e**2)
+    h = np.sqrt(GM*p)
+    r = p/(1. + e*math.cos(theta))
+
+    # Calculate r_vect and v_vect
+    r_vect = r * \
+        np.array([[math.cos(RAAN)*math.cos(theta+w) - math.sin(RAAN)*math.sin(theta+w)*math.cos(i)],
+                  [math.sin(RAAN)*math.cos(theta+w) + math.cos(RAAN)*math.sin(theta+w)*math.cos(i)],
+                  [math.sin(theta+w)*math.sin(i)]])
+
+    vv1 = math.cos(RAAN)*(math.sin(theta+w) + e*math.sin(w)) + \
+          math.sin(RAAN)*(math.cos(theta+w) + e*math.cos(w))*math.cos(i)
+
+    vv2 = math.sin(RAAN)*(math.sin(theta+w) + e*math.sin(w)) - \
+          math.cos(RAAN)*(math.cos(theta+w) + e*math.cos(w))*math.cos(i)
+
+    vv3 = -(math.cos(theta+w) + e*math.cos(w))*math.sin(i)
+    
+    v_vect = -GM/h * np.array([[vv1], [vv2], [vv3]])
+
+    cart = np.concatenate((r_vect, v_vect), axis=0)
+    
+    return cart
+
+
+def cart2kep(cart, GM=3.986004415e14):
+    '''
+    This function converts a Cartesian state vector in inertial frame to
+    Keplerian orbital elements.
+    
+    Parameters
+    ------
+    cart : 6x1 numpy array
+    
+    Cartesian Coordinates (Inertial Frame)
+    ------
+    cart[0] : x
+      Position in x               [m]
+    cart[1] : y
+      Position in y               [m]
+    cart[2] : z
+      Position in z               [m]
+    cart[3] : dx
+      Velocity in x               [m/s]
+    cart[4] : dy
+      Velocity in y               [m/s]
+    cart[5] : dz
+      Velocity in z               [m/s]
+      
+    Returns
+    ------
+    elem : 6x1 numpy array
+    
+    Keplerian Orbital Elements
+    ------
+    elem[0] : a
+      Semi-Major Axis             [km]
+    elem[1] : e
+      Eccentricity                [unitless]
+    elem[2] : i
+      Inclination                 [rad]
+    elem[3] : RAAN
+      Right Asc Ascending Node    [rad]
+    elem[4] : w
+      Argument of Periapsis       [rad]
+    elem[5] : theta
+      True Anomaly                [rad]    
+      
+    '''
+    
+    # Retrieve input cartesian coordinates
+    r_vect = cart[0:3].reshape(3,1)
+    v_vect = cart[3:6].reshape(3,1)
+
+    # Calculate orbit parameters
+    r = np.linalg.norm(r_vect)
+    ir_vect = r_vect/r
+    v2 = np.linalg.norm(v_vect)**2
+    h_vect = np.cross(r_vect, v_vect, axis=0)
+    h = np.linalg.norm(h_vect)
+
+    # Calculate semi-major axis
+    a = 1./(2./r - v2/GM)     # km
+    
+    # Calculate eccentricity
+    e_vect = np.cross(v_vect, h_vect, axis=0)/GM - ir_vect
+    e = np.linalg.norm(e_vect)
+
+    # Calculate RAAN and inclination
+    ih_vect = h_vect/h
+
+    RAAN = math.atan2(ih_vect[0,0], -ih_vect[1,0])   # rad
+    i = math.acos(ih_vect[2,0])   # rad
+    if RAAN < 0.:
+        RAAN += 2.*math.pi
+
+    # Apply correction for circular orbit, choose e_vect to point
+    # to ascending node
+    if e != 0:
+        ie_vect = e_vect/e
+    else:
+        ie_vect = np.array([[math.cos(RAAN)], [math.sin(RAAN)], [0.]])
+
+    # Find orthogonal unit vector to complete perifocal frame
+    ip_vect = np.cross(ih_vect, ie_vect, axis=0)
+
+    # Form rotation matrix PN
+    PN = np.concatenate((ie_vect, ip_vect, ih_vect), axis=1).T
+
+    # Calculate argument of periapsis
+    w = math.atan2(PN[0,2], PN[1,2])  # rad
+    if w < 0.:
+        w += 2.*math.pi
+
+    # Calculate true anomaly
+    cross1 = np.cross(ie_vect, ir_vect, axis=0)
+    tan1 = np.dot(cross1.T, ih_vect).flatten()[0]
+    tan2 = np.dot(ie_vect.T, ir_vect).flatten()[0]
+    theta = math.atan2(tan1, tan2)    # rad
+    
+    # Update range of true anomaly for elliptical orbits
+    if a > 0. and theta < 0.:
+        theta += 2.*math.pi
+
+    # Form output
+    elem = np.array([[a], [e], [i], [RAAN], [w], [theta]])
+      
+    return elem
+
 
 
 def eci2ric(rc_vect, vc_vect, Q_eci=[]):

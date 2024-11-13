@@ -329,13 +329,94 @@ def unit_test_initialize_covar():
     return
 
 
+def unit_test_relative_ei_vector():
+    
+    # Initial state vector
+    cdm_dir = r'data\cdm'
+    cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+    TCA_epoch_tdb, X1, X2 = ConjUtil.retrieve_conjunction_data_at_tca(cdm_file)
+    
+    # Default integrator/propagator settings
+    state_params, int_params, bodies = prop.initialize_propagator('rkdp87')
+    
+    # Update for backprop
+    step = 30.
+    tol = np.inf
+    int_params['step'] = -step
+    int_params['max_step'] = -step
+    int_params['min_step'] = -step
+    int_params['atol'] = tol
+    int_params['rtol'] = tol
+    
+    t0 = TCA_epoch_tdb - 7*86400.
+    tvec = np.array([TCA_epoch_tdb, t0])
+    
+    tback1, Xback1 = prop.propagate_orbit(X1, tvec, state_params, int_params, bodies)
+    tback2, Xback2 = prop.propagate_orbit(X2, tvec, state_params, int_params, bodies)
+    
+    # Inertial state vectors at t0
+    X1_0 = Xback1[0,:].reshape(6,1)
+    X2_0 = Xback2[1,:].reshape(6,1)
+    d2 = np.linalg.norm(X1_0[0:3] - X2_0[0:3])
+    
+    # Generate the initial covariances
+    dum, P1_0 = ConjUtil.initialize_covar(t0, X1_0, thrs=3., interval=300., noise=1.)
+    dum, P2_0 = ConjUtil.initialize_covar(t0, X2_0, thrs=3., interval=300., noise=1.)
+    
+    # Compute relative e/i vectors and separation angle for mean states
+    angle, de_vect_of, di_vect_of = ConjUtil.inertial2relative_ei(X1, X2, GM=3.986004415e14)
+    
+    print('')
+    print('separation distance [m]', d2)
+    print('e/i angle [deg]', angle*180/np.pi)
+    print('de_vect_of', de_vect_of)
+    print('di_vect_of', di_vect_of)
+    
+    # Generate samples
+    N = 10
+    samples1 = np.random.default_rng().multivariate_normal(X1_0.flatten(), P1_0, N)
+    samples2 = np.random.default_rng().multivariate_normal(X2_0.flatten(), P2_0, N)
+    
+    
+    
+    
+    
+    
+    
+    # Generate plots
+    plt.figure()
+    plt.plot([0, de_vect_of[0,0]], [0, de_vect_of[1,0]], 'r')
+    plt.xlim([-3e-5, 3e-5])
+    plt.ylim([-3e-5, 3e-5])  
+    plt.xlabel('de[x]')
+    plt.ylabel('de[y]')
+    plt.grid()
+    
+    plt.figure()
+    plt.plot([0, di_vect_of[0,0]], [0, di_vect_of[1,0]], 'r')
+    plt.xlim([-3e-5, 3e-5])
+    plt.ylim([-3e-5, 3e-5])  
+    plt.xlabel('di[x]')
+    plt.ylabel('di[y]')
+    plt.grid()
+    
+    
+    plt.show()
+    
+    
+    return
+
+
 
 if __name__ == '__main__':
     
+    plt.close('all')
+    
     # unit_test_forward_backprop()
     
-    unit_test_initialize_covar()
+    # unit_test_initialize_covar()
 
+    unit_test_relative_ei_vector()
     
 
 
