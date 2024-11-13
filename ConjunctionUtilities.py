@@ -538,7 +538,105 @@ def initialize_covar(t0, Xo, thrs=3., interval=300., noise=1.):
     Xo, Po = run_filter(state_dict, truth_dict, meas_dict, meas_fcn, params_dict)
     
     
-    return Po
+    return Xo, Po
+
+
+###############################################################################
+# Compute Risk Metrics
+###############################################################################
+
+
+def compute_euclidean_distance(r_A, r_B):
+    
+    d = np.linalg.norm(r_A - r_B)
+    
+    return d
+
+
+def compute_mahalanobis_distance(r_A, r_B, P_A, P_B):    
+    
+    Psum = P_A + P_B
+    invP = np.linalg.inv(Psum)
+    diff = r_A - r_B
+    M = float(np.sqrt(np.dot(diff.T, np.dot(invP, diff)))[0,0])
+    
+    return M
+
+
+def compute_RTN_posvel():
+    
+    return
+
+
+###############################################################################
+# Relative Ecc/Inc Vector Separation
+###############################################################################
+
+
+def inertial2relative_ei(rc_vect, vc_vect, rd_vect, vd_vect, GM=GME):
+    '''
+    This function converts inertial Cartesian position and velocity vectors of 
+    two space objects into relative eccentricity and inclination vectors, also
+    expressed in the inertial coordinate frame.
+    
+    '''
+    
+    # Reshape inputs if needed
+    rc_vect = np.reshape(rc_vect, (3,1))
+    vc_vect = np.reshape(vc_vect, (3,1))
+    rd_vect = np.reshape(rd_vect, (3,1))
+    vd_vect = np.reshape(vd_vect, (3,1))
+    
+    # Compute angular momentum unit vectors
+    hc_vect = np.cross(rc_vect, vc_vect, axis=0)
+    hd_vect = np.cross(rd_vect, vd_vect, axis=0)
+    ih_c = hc_vect/np.linalg.norm(hc_vect)
+    ih_d = hd_vect/np.linalg.norm(hd_vect)
+    
+    # Compute eccentricity vectors
+    ec_vect = np.cross(vc_vect, hc_vect, axis=0)/GM - rc_vect/np.linalg.norm(rc_vect)
+    ed_vect = np.cross(vd_vect, hd_vect, axis=0)/GM - rd_vect/np.linalg.norm(rd_vect)
+    
+    # Compute relative ecc/inc vectors in inertial frame
+    di_vect = np.cross(ih_c, ih_d, axis=0)
+    de_vect = ed_vect - ec_vect  
+    
+    # Compute separation angle
+    angle = np.arccos(np.dot(de_vect.flatten(), di_vect.flatten())/(np.linalg.norm(de_vect)*np.linalg.norm(di_vect)))
+    
+    return angle, de_vect, di_vect
+
+
+def compute_R1(theta):
+    
+    R1 = np.array([[1.,              0.,             0.],
+                   [0.,   np.cos(theta),  np.sin(theta)],
+                   [0.,  -np.sin(theta),  np.cos(theta)]])
+    
+    
+    return R1
+
+
+def compute_R3(theta):
+    
+    R3 = np.array([[ np.cos(theta),  np.sin(theta),   0.],
+                   [-np.sin(theta),  np.cos(theta),   0.],
+                   [           0.,              0.,   1.]])
+    
+    return R3
+
+
+
+
+def compute_angle_diff(a, b):
+    
+    diff = (a - b) % (2.*np.pi)
+    if diff < -np.pi:
+        diff += 2.*np.pi
+    if diff > np.pi:
+        diff -= 2.*np.pi    
+    
+    return abs(diff)
 
 
 ###############################################################################
@@ -705,6 +803,11 @@ def remediate_covariance(Praw, Lclip, Lraw=[], Vraw=[]):
     
     
     return Prem, Pdet, Pinv, posdef_status, clip_status
+
+
+###############################################################################
+#
+###############################################################################
 
 
 

@@ -290,12 +290,53 @@ def unit_test_forward_backprop():
     return
 
 
+def unit_test_initialize_covar():
+    
+    # Initial state vector
+    cdm_dir = r'data\cdm'
+    cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+    TCA_epoch_tdb, X1, X2 = ConjUtil.retrieve_conjunction_data_at_tca(cdm_file)
+    
+    # Default integrator/propagator settings
+    state_params, int_params, bodies = prop.initialize_propagator('rkdp87')
+    
+    # Update for backprop
+    step = 30.
+    tol = np.inf
+    int_params['step'] = -step
+    int_params['max_step'] = -step
+    int_params['min_step'] = -step
+    int_params['atol'] = tol
+    int_params['rtol'] = tol
+    
+    t0 = TCA_epoch_tdb - 7*86400.
+    tvec = np.array([TCA_epoch_tdb, t0])
+    
+    tback, Xback = prop.propagate_orbit(X1, tvec, state_params, int_params, bodies)
+    
+    # Retrieve for covariance setup
+    tvec = np.array([t0, TCA_epoch_tdb])
+    Xo = Xback[0,:].reshape(6,1)
+    
+    dum, Po = ConjUtil.initialize_covar(t0, Xo, thrs=3., interval=300., noise=1.)
+    
+    print('Xo', Xo)
+    print('dum', dum)
+    print('err', dum - Xo)
+    print(Po)
+    
+    
+    return
+
+
 
 if __name__ == '__main__':
     
-    unit_test_forward_backprop()
+    # unit_test_forward_backprop()
+    
+    unit_test_initialize_covar()
 
-
+    
 
 
 
