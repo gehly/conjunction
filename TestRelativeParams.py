@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 
 import TudatPropagator as prop
+import ConjunctionUtilities as ConjUtil
 
 
 # Earth parameters
@@ -45,6 +46,8 @@ def test_damico_tsx_tdx(datafile):
     RAAN = 0.                           # rad
     w = 270.*np.pi/180.                 # rad
     M = np.pi/2.                        # rad
+    E = mean2ecc(M, e)
+    TA = ecc2true(E, e)
     P = 2.*np.pi*np.sqrt(a**3./GME)     # sec
     
     # Orbit Differences
@@ -74,6 +77,8 @@ def test_damico_tsx_tdx(datafile):
     RAAN2 = RAAN + dRAAN                # rad
     w2 = 90*np.pi/180.                  # rad
     M2 = M + np.pi                      # rad
+    E2 = mean2ecc(M2, e2)
+    TA2 = ecc2true(E2, e2)
     
     # Rotation matrix from ECI to Orbit Frame 1
     R1 = compute_R1(i)    
@@ -95,11 +100,11 @@ def test_damico_tsx_tdx(datafile):
     # osc_elem1[5] = true_anom1
     # osc_elem2[5] = true_anom2
     
-    osc_elem1 = [a, e, i, RAAN, w, M]
-    osc_elem2 = [a2, e2, i2, RAAN2, w2, M2]
+    kep_elem1 = [a, e, i, RAAN, w, TA]
+    kep_elem2 = [a2, e2, i2, RAAN2, w2, TA2]
     
-    X1 = kep2cart(osc_elem1)
-    X2 = kep2cart(osc_elem2)
+    X1 = kep2cart(kep_elem1)
+    X2 = kep2cart(kep_elem2)
     
     # Check initial orbit energy and relative orbit params
     r1_vect = X1[0:3].reshape(3,1)
@@ -156,8 +161,8 @@ def test_damico_tsx_tdx(datafile):
     
     print('')
     print('initial ECI states')
-    print('osc_elem1', osc_elem1)
-    print('osc_elem2', osc_elem2)
+    print('kep_elem1', kep_elem1)
+    print('kep_elem2', kep_elem2)
     print('X1', X1)
     print('X2', X2)
     
@@ -200,6 +205,19 @@ def test_damico_tsx_tdx(datafile):
     plt.plot([0., di_x], [0., di_y], 'k')
     plt.xlabel('di[x]')
     plt.ylabel('di[y]')
+    
+    
+    # Compute relative vectors and angle using cartesian and keplerian functions
+    angle_cart, de_vect_cart, di_vect_cart = ConjUtil.inertial2relative_ei(X1, X2, GM=3.986004415e14)
+    angle_kep, de_vect_kep, di_vect_kep = ConjUtil.kep2relative_ei(kep_elem1, kep_elem2)
+    
+    print('')
+    print('angle_cart', angle_cart*180/np.pi)
+    print('angle_kep', angle_kep*180/np.pi)
+    print('de_vect_cart', de_vect_cart)
+    print('de_vect_kep', de_vect_kep)
+    print('di_vect_cart', di_vect_cart)
+    print('di_vect_kep', di_vect_kep)
     
     
     # Propagate orbits
@@ -305,6 +323,8 @@ def plot_damico_tsx_tdx(datafile):
     di_x_mean = []
     di_y_mean = []
     angle_deg_plot = []
+    angle_deg_kep_osc = []
+    angle_deg_kep_mean = []
     mean_angle_plot = []
     a_plot = []
     e_plot = []
@@ -324,6 +344,7 @@ def plot_damico_tsx_tdx(datafile):
         r2_vect = Xout[kk,6:9].reshape(3,1)
         v2_vect = Xout[kk,9:12].reshape(3,1)
         X1 = Xout[kk,0:6].reshape(6,1)
+        X2 = Xout[kk,6:12].reshape(6,1)
         elem = cart2kep(X1)
         inc = float(elem[2,0])
         RAAN = float(elem[3,0])
@@ -345,6 +366,28 @@ def plot_damico_tsx_tdx(datafile):
         de_vect_of = np.dot(OF1_ECI, de_vect_eci)
         di_vect_of = np.dot(OF1_ECI, di_vect_eci)
         angle = np.arccos(np.dot(de_vect_of.flatten(), di_vect_of.flatten())/(np.linalg.norm(de_vect_of)*np.linalg.norm(di_vect_of)))
+        
+        # Alternate computation of angles
+        kep_elem1 = cart2kep(X1)
+        kep_elem2 = cart2kep(X2)
+        e1 = float(kep_elem1[1,0])
+        TA1 = float(kep_elem1[5,0])
+        E1 = true2ecc(TA1, e1)
+        M1 = ecc2mean(E1, e1)
+        
+        e2 = float(kep_elem2[1,0])
+        TA2 = float(kep_elem2[5,0])
+        E2 = true2ecc(TA2, e2)
+        M2 = ecc2mean(E2, e2)
+        
+        kep_elem1[5,0] = M1
+        kep_elem2[5,0] = M2
+        
+        mean_elem1 = osc2mean(kep_elem1.flatten())
+        mean_elem2 = osc2mean(kep_elem2.flatten())
+        
+        angle_osc, de_vect_kep, di_vect_kep = ConjUtil.kep2relative_ei(kep_elem1, kep_elem2)
+        angle_mean, de_vect_mean, di_vect_mean = ConjUtil.kep2relative_ei(mean_elem1, mean_elem2)
         
         # Check for date when angle is closest to perpendicular, if it exists
         # angle_diff = abs(angle - np.pi/2.)
@@ -377,6 +420,9 @@ def plot_damico_tsx_tdx(datafile):
             a_plot.append(float(elem[0,0])/1000.)
             e_plot.append(float(elem[1,0]))
             i_plot.append(inc*180/np.pi)
+            
+            angle_deg_kep_osc.append(angle_osc*180./np.pi)
+            angle_deg_kep_mean.append(angle_mean*180./np.pi)
         
             
     
@@ -390,6 +436,19 @@ def plot_damico_tsx_tdx(datafile):
         plt.plot(danger_time/86400., danger_angle*180/np.pi, 'ro')
     plt.xlabel('Time [days]')
     plt.ylabel('Separation Angle [deg]')
+    
+    plt.figure()
+    plt.plot([ti/24. for ti in thrs_plot], angle_deg_plot, 'k.')
+    plt.plot([ti/24. for ti in thrs_plot], mean_angle_plot, 'b.')
+    plt.plot([ti/24. for ti in thrs_plot], angle_deg_kep_osc, 'r.')
+    plt.plot([ti/24. for ti in thrs_plot], angle_deg_kep_mean, 'g.')
+    plt.xlabel('Time [days]')
+    plt.ylabel('Separation Angle [deg]')
+    
+    print(angle_deg_kep_osc)
+    print(angle_deg_kep_mean)
+    
+    
     
     plt.figure()
     plt.plot(de_x_plot, de_y_plot, 'k.')
@@ -927,6 +986,48 @@ def cart2kep(cart, GM=GME):
     elem = np.array([[a], [e], [i], [RAAN], [w], [theta]])
       
     return elem
+
+
+def osc2mean(osc_elem):
+    '''
+    This function converts osculating Keplerian elements to mean Keplerian
+    elements using Brouwer-Lyddane Theory.
+    
+    Parameters
+    ------
+    elem0 : list
+        Osculating Keplerian orbital elements [km, rad]
+        [a,e,i,RAAN,w,M]
+    
+    Returns
+    ------
+    elem1 : list
+        Mean Keplerian orbital elements [km, rad]
+        [a,e,i,RAAN,w,M]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    '''
+    
+    # Retrieve input elements
+    a0 = float(osc_elem[0])
+    e0 = float(osc_elem[1])
+    i0 = float(osc_elem[2])
+    RAAN0 = float(osc_elem[3])
+    w0 = float(osc_elem[4])
+    M0 = float(osc_elem[5])
+    
+    # Compute gamma parameter
+    gamma0 = -(J2E/2.) * (Re/a0)**2.
+    
+    # Compute first order Brouwer-Lyddane transformation
+    a1,e1,i1,RAAN1,w1,M1 = brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0)
+    
+    mean_elem = [a1,e1,i1,RAAN1,w1,M1]    
+    
+    return mean_elem
 
 
 def mean2osc(mean_elem):

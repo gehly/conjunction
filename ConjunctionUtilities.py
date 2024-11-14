@@ -1490,6 +1490,317 @@ def cart2kep(cart, GM=3.986004415e14):
     return elem
 
 
+def osc2mean(osc_elem):
+    '''
+    This function converts osculating Keplerian elements to mean Keplerian
+    elements using Brouwer-Lyddane Theory.
+    
+    Parameters
+    ------
+    elem0 : list
+        Osculating Keplerian orbital elements [km, rad]
+        [a,e,i,RAAN,w,M]
+    
+    Returns
+    ------
+    elem1 : list
+        Mean Keplerian orbital elements [km, rad]
+        [a,e,i,RAAN,w,M]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    '''
+    
+    # Retrieve input elements
+    a0 = float(osc_elem[0])
+    e0 = float(osc_elem[1])
+    i0 = float(osc_elem[2])
+    RAAN0 = float(osc_elem[3])
+    w0 = float(osc_elem[4])
+    M0 = float(osc_elem[5])
+    
+    # Compute gamma parameter
+    gamma0 = -(J2E/2.) * (Re/a0)**2.
+    
+    # Compute first order Brouwer-Lyddane transformation
+    a1,e1,i1,RAAN1,w1,M1 = brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0)
+    
+    mean_elem = [a1,e1,i1,RAAN1,w1,M1]    
+    
+    return mean_elem
+
+
+def mean2osc(mean_elem):
+    '''
+    This function converts mean Keplerian elements to osculating Keplerian
+    elements using Brouwer-Lyddane Theory.
+    
+    Parameters
+    ------
+    mean_elem : list
+        Mean Keplerian orbital elements [m, rad]
+        [a,e,i,RAAN,w,M]
+    
+    Returns
+    ------
+    osc_elem : list
+        Osculating Keplerian orbital elements [m, rad]
+        [a,e,i,RAAN,w,M]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    '''
+    
+    # Retrieve input elements, convert to radians
+    a0 = float(mean_elem[0])
+    e0 = float(mean_elem[1])
+    i0 = float(mean_elem[2])
+    RAAN0 = float(mean_elem[3])
+    w0 = float(mean_elem[4])
+    M0 = float(mean_elem[5])
+    
+    # Compute gamma parameter
+    gamma0 = (J2E/2.) * (Re/a0)**2.
+    
+    # Compute first order Brouwer-Lyddane transformation
+    a1,e1,i1,RAAN1,w1,M1 = brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0)
+
+    
+    osc_elem = [a1,e1,i1,RAAN1,w1,M1]
+    
+    return osc_elem
+
+
+def brouwer_lyddane(a0,e0,i0,RAAN0,w0,M0,gamma0):
+    '''
+    This function converts between osculating and mean Keplerian elements
+    using Brouwer-Lyddane Theory. The input gamma value determines whether 
+    the transformation is from osculating to mean elements or vice versa.
+    The same calculations are performed in either case.
+    
+    Parameters
+    ------
+    a0 : float
+        semi-major axis [m]
+    e0 : float
+        eccentricity
+    i0 : float
+        inclination [rad]
+    RAAN0 : float
+        right ascension of ascending node [rad]
+    w0 : float 
+        argument of periapsis [rad]
+    M0 : float
+        mean anomaly [rad]
+    gamma0 : float
+        intermediate calculation parameter        
+    
+    Returns 
+    ------
+    a1 : float
+        semi-major axis [m]
+    e1 : float
+        eccentricity
+    i1 : float
+        inclination [rad]
+    RAAN1 : float
+        right ascension of ascending node [rad]
+    w1 : float 
+        argument of periapsis [rad]
+    M1 : float
+        mean anomaly [rad]
+    
+    References
+    ------
+    [1] Schaub, H. and Junkins, J.L., Analytical Mechanics of Space Systems."
+        2nd ed., 2009.
+    
+    '''
+    
+    # Compute transformation parameters
+    eta = np.sqrt(1. - e0**2.)
+    gamma1 = gamma0/eta**4.
+    
+    # Compute true anomaly
+    E0 = mean2ecc(M0, e0)
+    f0 = ecc2true(E0, e0)
+    
+    # Compute intermediate terms
+    a_r = (1. + e0*math.cos(f0))/eta**2.
+    
+    de1 = (gamma1/8.)*e0*eta**2.*(1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.) /
+                                  (1.-5.*math.cos(i0)**2.)))*math.cos(2.*w0)
+    
+    de = de1 + (eta**2./2.) * \
+        (gamma0*((3.*math.cos(i0)**2. - 1.)/(eta**6.) *
+                 (e0*eta + e0/(1.+eta) + 3.*math.cos(f0) + 3.*e0*math.cos(f0)**2. + e0**2.*math.cos(f0)**3.) +
+              3.*(1.-math.cos(i0)**2.)/eta**6.*(e0 + 3.*math.cos(f0) + 3.*e0*math.cos(f0)**2. + e0**2.*math.cos(f0)**3.) * math.cos(2.*w0 + 2.*f0))
+                - gamma1*(1.-math.cos(i0)**2.)*(3.*math.cos(2*w0 + f0) + math.cos(2.*w0 + 3.*f0)))
+
+    di = -(e0*de1/(eta**2.*math.tan(i0))) + (gamma1/2.)*math.cos(i0)*np.sqrt(1.-math.cos(i0)**2.) * \
+          (3.*math.cos(2*w0 + 2.*f0) + 3.*e0*math.cos(2.*w0 + f0) + e0*math.cos(2.*w0 + 3.*f0))
+          
+    MwRAAN1 = M0 + w0 + RAAN0 + (gamma1/8.)*eta**3. * \
+              (1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))) - (gamma1/16.) * \
+              (2. + e0**2. - 11.*(2.+3.*e0**2.)*math.cos(i0)**2.
+               - 40.*(2.+5.*e0**2.)*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))
+               - 400.*e0**2.*(math.cos(i0)**6.)/((1.-5.*math.cos(i0)**2.)**2.)) + (gamma1/4.) * \
+              (-6.*(1.-5.*math.cos(i0)**2.)*(f0 - M0 + e0*math.sin(f0))
+               + (3.-5.*math.cos(i0)**2.)*(3.*math.sin(2.*w0 + 2.*f0) + 3.*e0*math.sin(2.*w0 + f0) + e0*math.sin(2.*w0 + 3.*f0))) \
+               - (gamma1/8.)*e0**2.*math.cos(i0) * \
+              (11. + 80.*(math.cos(i0)**2.)/(1.-5.*math.cos(i0)**2.) + 200.*(math.cos(i0)**4.)/((1.-5.*math.cos(i0)**2.)**2.)) \
+               - (gamma1/2.)*math.cos(i0) * \
+              (6.*(f0 - M0 + e0*math.sin(f0)) - 3.*math.sin(2.*w0 + 2.*f0) - 3.*e0*math.sin(2.*w0 + f0) - e0*math.sin(2.*w0 + 3.*f0))
+               
+    edM = (gamma1/8.)*e0*eta**3. * \
+          (1. - 11.*math.cos(i0)**2. - 40.*((math.cos(i0)**4.)/(1.-5.*math.cos(i0)**2.))) - (gamma1/4.)*eta**3. * \
+          (2.*(3.*math.cos(i0)**2. - 1.)*((a_r*eta)**2. + a_r + 1.)*math.sin(f0) +
+           3.*(1. - math.cos(i0)**2.)*((-(a_r*eta)**2. - a_r + 1.)*math.sin(2.*w0 + f0) +
+           ((a_r*eta)**2. + a_r + (1./3.))*math.sin(2*w0 + 3.*f0)))
+          
+    dRAAN = -(gamma1/8.)*e0**2.*math.cos(i0) * \
+             (11. + 80.*(math.cos(i0)**2.)/(1.-5.*math.cos(i0)**2.) +
+              200.*(math.cos(i0)**4.)/((1.-5.*math.cos(i0)**2.)**2.)) - (gamma1/2.)*math.cos(i0) * \
+             (6.*(f0 - M0 + e0*math.sin(f0)) - 3.*math.sin(2.*w0 + 2.*f0) -
+              3.*e0*math.sin(2.*w0 + f0) - e0*math.sin(2.*w0 + 3.*f0))
+
+    d1 = (e0 + de)*math.sin(M0) + edM*math.cos(M0)
+    d2 = (e0 + de)*math.cos(M0) - edM*math.sin(M0)
+    d3 = (math.sin(i0/2.) + math.cos(i0/2.)*(di/2.))*math.sin(RAAN0) + math.sin(i0/2.)*dRAAN*math.cos(RAAN0)
+    d4 = (math.sin(i0/2.) + math.cos(i0/2.)*(di/2.))*math.cos(RAAN0) - math.sin(i0/2.)*dRAAN*math.sin(RAAN0)
+    
+    # Compute transformed elements
+    a1 = a0 + a0*gamma0*((3.*math.cos(i0)**2. - 1.)*(a_r**3. - (1./eta)**3.) +
+                         (3.*(1.-math.cos(i0)**2.)*a_r**3.*math.cos(2.*w0 + 2.*f0)))
+    
+    e1 = np.sqrt(d1**2. + d2**2.)
+    
+    i1 = 2.*math.asin(np.sqrt(d3**2. + d4**2.))
+    
+    RAAN1 = math.atan2(d3, d4)
+    
+    M1 = math.atan2(d1, d2)
+    
+    w1 = MwRAAN1 - RAAN1 - M1
+    
+    while w1 > 2.*math.pi:
+        w1 -= 2.*math.pi
+        
+    while w1 < 0.:
+        w1 += 2.*math.pi
+                             
+    
+    return a1, e1, i1, RAAN1, w1, M1
+
+
+def mean2ecc(M, e):
+    '''
+    This function converts from Mean Anomaly to Eccentric Anomaly
+
+    Parameters
+    ------
+    M : float
+      mean anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    E : float
+      eccentric anomaly [rad]
+    '''
+
+    # Ensure M is between 0 and 2*pi
+    M = math.fmod(M, 2*math.pi)
+    if M < 0:
+        M += 2*math.pi
+
+    # Starting guess for E
+    E = M + e*math.sin(M)/(1 - math.sin(M + e) + math.sin(M))
+
+    # Initialize loop variable
+    f = 1
+    tol = 1e-8
+
+    # Iterate using Newton-Raphson Method
+    while math.fabs(f) > tol:
+        f = E - e*math.sin(E) - M
+        df = 1 - e*math.cos(E)
+        E = E - f/df
+
+    return E
+
+
+def ecc2mean(E, e):
+    '''
+    This function converts from Eccentric Anomaly to Mean Anomaly
+
+    Parameters
+    ------
+    E : float
+      eccentric anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    M : float
+      mean anomaly [rad]
+    '''
+    
+    M = E - e*math.sin(E)
+    
+    return M
+
+
+def ecc2true(E, e):
+    '''
+    This function converts from Eccentric Anomaly to True Anomaly
+
+    Parameters
+    ------
+    E : float
+      eccentric anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    f : float
+      true anomaly [rad]
+    '''
+
+    f = 2*math.atan(np.sqrt((1+e)/(1-e))*math.tan(E/2))
+
+    return f
+
+
+def true2ecc(f, e):
+    '''
+    This function converts from True Anomaly to Eccentric Anomaly
+
+    Parameters
+    ------
+    f : float
+      true anomaly [rad]
+    e : float
+      eccentricity
+
+    Returns
+    ------
+    E : float
+      eccentric anomaly [rad]
+    '''
+
+    E = 2*math.atan(np.sqrt((1-e)/(1+e))*math.tan(f/2))
+
+    return E
+
+
 
 def eci2ric(rc_vect, vc_vect, Q_eci=[]):
     '''
