@@ -391,39 +391,47 @@ def damico_test_case_params():
 
 def unit_test_relative_ei_vector():
     
-    # Initial state vector
-    cdm_dir = r'data\cdm'
-    cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
-    # cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187776000.cdm')
-    # cdm_file = os.path.join(cdm_dir, '2024-09-13--10--31698-36605.1726221677000.cdm')
-    TCA_epoch_tdb, X1, X2 = ConjUtil.retrieve_conjunction_data_at_tca(cdm_file)
+    damico = False
     
-    # Default integrator/propagator settings
-    state_params, int_params, bodies = prop.initialize_propagator('rkdp87')
+    if damico:
+        
+        # D'Amico TSX/TDX setup
+        t0 = 0.
+        X1_0, X2_0 = damico_test_case_params()
+        
+    else:
     
-    # Update for backprop
-    step = 30.
-    tol = np.inf
-    int_params['step'] = -step
-    int_params['max_step'] = -step
-    int_params['min_step'] = -step
-    int_params['atol'] = tol
-    int_params['rtol'] = tol
+        # Initial state vector
+        cdm_dir = r'data\cdm'
+        cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+        # cdm_file = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187776000.cdm')
+        # cdm_file = os.path.join(cdm_dir, '2024-09-13--10--31698-36605.1726221677000.cdm')
+        TCA_epoch_tdb, X1, X2 = ConjUtil.retrieve_conjunction_data_at_tca(cdm_file)
+        
+        # Default integrator/propagator settings
+        state_params, int_params, bodies = prop.initialize_propagator('rkdp87')
+        
+        # Update for backprop
+        step = 30.
+        tol = np.inf
+        int_params['step'] = -step
+        int_params['max_step'] = -step
+        int_params['min_step'] = -step
+        int_params['atol'] = tol
+        int_params['rtol'] = tol
+        
+        t0 = TCA_epoch_tdb - 1*86400.
+        tvec = np.array([TCA_epoch_tdb, t0])
+        
+        tback1, Xback1 = prop.propagate_orbit(X1, tvec, state_params, int_params, bodies)
+        tback2, Xback2 = prop.propagate_orbit(X2, tvec, state_params, int_params, bodies)
+        
+        # Inertial state vectors at t0
+        X1_0 = Xback1[0,:].reshape(6,1)
+        X2_0 = Xback2[0,:].reshape(6,1)
     
-    t0 = TCA_epoch_tdb - 7*86400.
-    tvec = np.array([TCA_epoch_tdb, t0])
-    
-    tback1, Xback1 = prop.propagate_orbit(X1, tvec, state_params, int_params, bodies)
-    tback2, Xback2 = prop.propagate_orbit(X2, tvec, state_params, int_params, bodies)
-    
-    # Inertial state vectors at t0
-    X1_0 = Xback1[0,:].reshape(6,1)
-    X2_0 = Xback2[0,:].reshape(6,1)
     
     
-    # # D'Amico TSX/TDX setup
-    # t0 = 0.
-    # X1_0, X2_0 = damico_test_case_params()
     
     # Compute initial orbits and separation
     d2 = np.linalg.norm(X1_0[0:3] - X2_0[0:3])    
@@ -440,6 +448,7 @@ def unit_test_relative_ei_vector():
     
     # Compute relative e/i vectors and separation angle for mean states
     angle, de_vect_of, di_vect_of = ConjUtil.inertial2relative_ei(X1_0, X2_0, GM=GME)
+    angle_mean, de_vect_mean, di_vect_mean = ConjUtil.inertial2meanrelative_ei(X1_0, X2_0, GM=GME)
     
     print('')
     print('X1_0', X1_0)
@@ -460,11 +469,17 @@ def unit_test_relative_ei_vector():
     dix_list = []
     diy_list = []
     angle_list = []
+    mean_dex_list = []
+    mean_dey_list = []
+    mean_dix_list = []
+    mean_diy_list = []
+    mean_angle_list = []
     for ii in range(N):
         s1_ii = samples1[ii,:].reshape(6,1)
         s2_ii = samples2[ii,:].reshape(6,1)
         
         angle_ii, de_vect_ii, di_vect_ii = ConjUtil.inertial2relative_ei(s1_ii, s2_ii, GM=GME)
+        angle_mean_ii, de_vect_mean_ii, di_vect_mean_ii = ConjUtil.inertial2meanrelative_ei(s1_ii, s2_ii, GM=GME)
         
         # print(s1_ii)
         # print(s2_ii)
@@ -480,10 +495,22 @@ def unit_test_relative_ei_vector():
         diy_list.append(float(di_vect_ii[1,0]))
         angle_list.append(angle_ii*180./np.pi)
         
+        mean_dex_list.append(float(de_vect_mean_ii[0,0]))
+        mean_dey_list.append(float(de_vect_mean_ii[1,0]))
+        mean_dix_list.append(float(di_vect_mean_ii[0,0]))
+        mean_diy_list.append(float(di_vect_mean_ii[1,0]))
+        mean_angle_list.append(angle_mean_ii*180./np.pi)
+        
         
     print('')
+    print('osculating elements results')
     print('mean angle [deg]', np.mean(angle_list))
     print('angle std [deg]', np.std(angle_list))
+    
+    print('')
+    print('mean elements results')
+    print('mean angle [deg]', np.mean(mean_angle_list))
+    print('angle std [deg]', np.std(mean_angle_list))
     
     
     dex_lim = max([abs(dex) for dex in dex_list])
@@ -502,6 +529,7 @@ def unit_test_relative_ei_vector():
     plt.ylim([-de_lim, de_lim])  
     plt.xlabel('de[x]')
     plt.ylabel('de[y]')
+    plt.title('Osculating Elements')
     plt.grid()
     
     plt.figure()
@@ -511,10 +539,41 @@ def unit_test_relative_ei_vector():
     plt.ylim([-di_lim, di_lim])  
     plt.xlabel('di[x]')
     plt.ylabel('di[y]')
+    plt.title('Osculating Elements')
     plt.grid()
     
     plt.figure()
     plt.hist(angle_list)
+    plt.xlabel('Separation Angle [deg]')
+    plt.ylabel('Occurrence')
+    plt.title('Osculating Elements')
+    
+    plt.figure()
+    plt.plot(mean_dex_list, mean_dey_list, 'k.')
+    plt.plot([0, de_vect_of[0,0]], [0, de_vect_of[1,0]], 'r')
+    plt.xlim([-de_lim, de_lim])
+    plt.ylim([-de_lim, de_lim])  
+    plt.xlabel('de[x]')
+    plt.ylabel('de[y]')
+    plt.title('Mean Elements')
+    plt.grid()
+    
+    plt.figure()
+    plt.plot(mean_dix_list, mean_diy_list, 'k.')
+    plt.plot([0, di_vect_of[0,0]], [0, di_vect_of[1,0]], 'r')
+    plt.xlim([-di_lim, di_lim])
+    plt.ylim([-di_lim, di_lim])  
+    plt.xlabel('di[x]')
+    plt.ylabel('di[y]')
+    plt.title('Mean Elements')
+    plt.grid()
+    
+    plt.figure()
+    plt.hist(mean_angle_list)
+    plt.xlabel('Separation Angle [deg]')
+    plt.ylabel('Occurrence')
+    plt.title('Mean Elements')
+    
     
     
     plt.show()

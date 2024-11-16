@@ -69,6 +69,11 @@ from utilities import eop_functions as eop
 # from utilities import tle_functions as tle
 # from utilities.constants import GME
 
+# Earth parameters
+GME = 398600.4415*1e9  # m^3/s^2
+J2E = 1.082626683e-3
+Re = 6378137.0
+
 
 ###############################################################################
 # Basic I/O
@@ -636,6 +641,43 @@ def inertial2relative_ei(X1, X2, GM=3.986004415e14):
         mistake
     
     return angle, de_vect_of, di_vect_of
+
+
+def inertial2meanrelative_ei(X1, X2, GM=3.986004415e14):
+    '''
+    This function converts inertial Cartesian position and velocity vectors of 
+    two space objects into mean orbit elements, followed by computation of the
+    relative eccentricity and inclination vectors and associated separation 
+    angle.
+    
+    '''
+    
+    # Convert Cartesian to Osculating Keplerian elements
+    osc_elem1 = cart2kep(X1, GM).flatten()
+    osc_elem2 = cart2kep(X2, GM).flatten()
+    
+    # Compute mean anomaly
+    e1 = float(osc_elem1[1])
+    TA1 = float(osc_elem1[5])
+    e2 = float(osc_elem2[1])
+    TA2 = float(osc_elem2[5])
+    E1 = true2ecc(TA1, e1)
+    E2 = true2ecc(TA2, e2)
+    M1 = ecc2mean(E1, e1)
+    M2 = ecc2mean(E2, e2)
+    
+    # Replace true anomaly with mean anomaly for use in Brouwer-Lyddane function
+    osc_elem1[5] = M1
+    osc_elem2[5] = M2
+    
+    # Convert osculating elements to mean elements
+    mean_elem1 = osc2mean(osc_elem1)
+    mean_elem2 = osc2mean(osc_elem2)
+    
+    # Compute relative e/i vectors and separation angle using mean elements
+    angle, de_vect, di_vect = kep2relative_ei(mean_elem1, mean_elem2)
+    
+    return angle, de_vect, di_vect
 
 
 def kep2relative_ei(kep1, kep2):
