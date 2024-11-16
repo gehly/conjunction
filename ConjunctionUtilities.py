@@ -1343,6 +1343,107 @@ def compute_SMA(cart, GM=3.986004415e14):
     return a
 
 
+def unit_test_tca():
+    '''
+    This function performs a unit test of the compute_TCA function. The object
+    parameters are such that a collision is expected 30 minutes after the
+    initial epoch (zero miss distance).
+    
+    The TCA function is run twice, using a fixed step RK4 and variable step
+    RKF78 to compare the results.
+    
+    '''
+    
+    # Initial time and state vectors
+    t0 = (datetime(2024, 3, 23, 5, 30, 0) - datetime(2000, 1, 1, 12, 0, 0)).total_seconds()
+    
+    X1 = np.array([[ 3.75944379e+05],
+                   [ 6.08137408e+06],
+                   [ 3.28340214e+06],
+                   [-5.32161464e+03],
+                   [-2.32172417e+03],
+                   [ 4.89152047e+03]])
+    
+    X2 = np.array([[ 3.30312011e+06],
+                   [-2.69542170e+06],
+                   [-5.71365135e+06],
+                   [-4.06029364e+03],
+                   [-6.22037456e+03],
+                   [ 9.09217382e+02]])
+    
+    # Basic setup parameters
+    bodies_to_create = ['Sun', 'Earth', 'Moon']
+    bodies = prop.tudat_initialize_bodies(bodies_to_create) 
+    
+    rso1_params = {}
+    rso1_params['mass'] = 260.
+    rso1_params['area'] = 17.5
+    rso1_params['Cd'] = 2.2
+    rso1_params['Cr'] = 1.3
+    rso1_params['sph_deg'] = 8
+    rso1_params['sph_ord'] = 8    
+    rso1_params['central_bodies'] = ['Earth']
+    rso1_params['bodies_to_create'] = bodies_to_create
+    
+    rso2_params = {}
+    rso2_params['mass'] = 100.
+    rso2_params['area'] = 1.
+    rso2_params['Cd'] = 2.2
+    rso2_params['Cr'] = 1.3
+    rso2_params['sph_deg'] = 8
+    rso2_params['sph_ord'] = 8    
+    rso2_params['central_bodies'] = ['Earth']
+    rso2_params['bodies_to_create'] = bodies_to_create
+    
+    int_params = {}
+    int_params['tudat_integrator'] = 'rk4'
+    int_params['step'] = 1.
+    
+    # Expected result
+    TCA_true = 764445600.0  
+    rho_true = 0.
+    
+    # Interval times
+    tf = t0 + 3600.
+    trange = np.array([t0, tf])
+    
+    # RK4 test
+    start = time.time()
+    T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
+                                    int_params, bodies)
+    
+
+    
+    print('')
+    print('RK4 TCA unit test runtime [seconds]:', time.time() - start)
+    print('RK4 TCA error [seconds]:', T_list[0]-TCA_true)
+    print('RK4 miss distance error [m]:', rho_list[0]-rho_true)
+    
+    
+    # RK78 test
+    int_params['tudat_integrator'] = 'rkf78'
+    int_params['step'] = 10.
+    int_params['max_step'] = 1000.
+    int_params['min_step'] = 1e-3
+    int_params['rtol'] = 1e-12
+    int_params['atol'] = 1e-12
+    
+    
+    start = time.time()
+    T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
+                                   int_params, bodies)
+    
+
+    print('')
+    print('RK78 TCA unit test runtime [seconds]:', time.time() - start)
+    print('RK78 TCA error [seconds]:', T_list[0]-TCA_true)
+    print('RK78 miss distance error [m]:', rho_list[0]-rho_true)
+    
+    
+    
+    return
+
+
 ###############################################################################
 # General Utilities
 ###############################################################################
@@ -2035,102 +2136,200 @@ def ric2eci_vel(rc_vect, vc_vect, rho_ric, drho_ric):
     return drho_eci
 
 
-def unit_test_tca():
+###############################################################################
+# Relative Orbit Parameterizations
+###############################################################################
+    
+def elemdiff2hill(delta_elem, kep_c, GM=GME):
     '''
-    This function performs a unit test of the compute_TCA function. The object
-    parameters are such that a collision is expected 30 minutes after the
-    initial epoch (zero miss distance).
+    This function transforms relative orbit parameters from orbit element 
+    differences to Cartesian coordinates in the rotating Hill frame.
     
-    The TCA function is run twice, using a fixed step RK4 and variable step
-    RKF78 to compare the results.
+    Parameters
+    ------
+    delta_elem : 6 element array or list
+        orbit element differences [da, dtrue_lat, di, dq1, dq2, dRAAN]
+        [m, rad]
+        
+    kep_c : 6 element array or list
+        Keplerian orbit elements of chief [a, e, i, RAAN, w, true_anom]
+        [m, rad]    
     
+    Returns
+    ------
+    X : 6 element array
+        relative orbit positions and velocities in rotatinng Hill frame 
+        [m, m/s]
+    
+    References
+    ------
+    [1] Schaub and Junkins, "Analytical Mechanics of Space Systems," 2nd ed.,
+        2009. 
+        
     '''
     
-    # Initial time and state vectors
-    t0 = (datetime(2024, 3, 23, 5, 30, 0) - datetime(2000, 1, 1, 12, 0, 0)).total_seconds()
+    # Retrieve input orbit elements and differences
+    kep = np.reshape(kep_c, (6,))
+    a = float(kep[0])
+    e = float(kep[1])
+    i = float(kep[2])
+    RAAN = float(kep[3])
+    w = float(kep[4])
+    true_anom = float(kep[5])
     
-    X1 = np.array([[ 3.75944379e+05],
-                   [ 6.08137408e+06],
-                   [ 3.28340214e+06],
-                   [-5.32161464e+03],
-                   [-2.32172417e+03],
-                   [ 4.89152047e+03]])
+    delta_elem = np.reshape(delta_elem, (6,))
+    da = float(delta_elem[0])
+    dtrue_lat = float(delta_elem[1])
+    di = float(delta_elem[2])
+    dq1 = float(delta_elem[3])
+    dq2 = float(delta_elem[4])
+    dRAAN = float(delta_elem[5])
     
-    X2 = np.array([[ 3.30312011e+06],
-                   [-2.69542170e+06],
-                   [-5.71365135e+06],
-                   [-4.06029364e+03],
-                   [-6.22037456e+03],
-                   [ 9.09217382e+02]])
+    # Compute non-singular elements (Eq 14.42-14.44)
+    true_lat = w + true_anom
+    q1 = e*np.cos(w)
+    q2 = e*np.sin(w)
     
-    # Basic setup parameters
-    bodies_to_create = ['Sun', 'Earth', 'Moon']
-    bodies = prop.tudat_initialize_bodies(bodies_to_create) 
+    # Compute orbit radius (Eq 14.56)
+    r = a*(1. - q1**2. - q2**2.)/(1. + q1*np.cos(true_lat) + q2*np.sin(true_lat))
     
-    rso1_params = {}
-    rso1_params['mass'] = 260.
-    rso1_params['area'] = 17.5
-    rso1_params['Cd'] = 2.2
-    rso1_params['Cr'] = 1.3
-    rso1_params['sph_deg'] = 8
-    rso1_params['sph_ord'] = 8    
-    rso1_params['central_bodies'] = ['Earth']
-    rso1_params['bodies_to_create'] = bodies_to_create
+    # Compute radial and tangential velocity (Eq 14.58-14.59)
+    p = a*(1. - e**2.)
+    h = np.sqrt(GM*p)
+    Vr = (h/p)*(q1*np.sin(true_lat) - q2*np.cos(true_lat))
+    Vt = (h/p)*(1. + q1*np.cos(true_lat) + q2*np.sin(true_lat))
     
-    rso2_params = {}
-    rso2_params['mass'] = 100.
-    rso2_params['area'] = 1.
-    rso2_params['Cd'] = 2.2
-    rso2_params['Cr'] = 1.3
-    rso2_params['sph_deg'] = 8
-    rso2_params['sph_ord'] = 8    
-    rso2_params['central_bodies'] = ['Earth']
-    rso2_params['bodies_to_create'] = bodies_to_create
-    
-    int_params = {}
-    int_params['tudat_integrator'] = 'rk4'
-    int_params['step'] = 1.
-    
-    # Expected result
-    TCA_true = 764445600.0  
-    rho_true = 0.
-    
-    # Interval times
-    tf = t0 + 3600.
-    trange = np.array([t0, tf])
-    
-    # RK4 test
-    start = time.time()
-    T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
-                                    int_params, bodies)
-    
+    # Compute variation of r (Eq 14.57)
+    dr =   (r/a)*da + (Vr/Vt)*r*dtrue_lat \
+         - (r/p)*(2.*a*q1 + r*np.cos(true_lat))*dq1 \
+         - (r/p)*(2.*a*q2 + r*np.sin(true_lat))*dq2
+         
 
+    # Compute Hill frame positions (Eq 14.60) and velocities (Eq 14.66)
+    x = dr
+    y = r*(dtrue_lat + np.cos(i)*dRAAN)
+    z = r*(np.sin(true_lat)*di - np.cos(true_lat)*np.sin(i)*dRAAN)
     
-    print('')
-    print('RK4 TCA unit test runtime [seconds]:', time.time() - start)
-    print('RK4 TCA error [seconds]:', T_list[0]-TCA_true)
-    print('RK4 miss distance error [m]:', rho_list[0]-rho_true)
+    dx = - (Vr/(2.*a))*da + ((1./r) - (1./p))*h*dtrue_lat \
+         + (Vr*a*q1 + h*np.sin(true_lat))*(dq1/p) \
+         + (Vr*a*q2 - h*np.cos(true_lat))*(dq2/p)
+         
+    dy = - (3.*Vt/(2.*a))*da - Vr*dtrue_lat \
+         + (3.*Vt*a*q1 + 2.*h*np.cos(true_lat))*(dq1/p) \
+         + (3.*Vt*a*q2 + 2.*h*np.sin(true_lat))*(dq2/p) \
+         + Vr*np.cos(i)*dRAAN
+         
+    dz =   (Vt*np.cos(true_lat) + Vr*np.sin(true_lat))*di \
+         + (Vt*np.sin(true_lat) - Vr*np.cos(true_lat))*np.sin(i)*dRAAN
+         
+    # Form output
+    X = np.array([x, y, z, dx, dy, dz])
     
-    
-    # RK78 test
-    int_params['tudat_integrator'] = 'rkf78'
-    int_params['step'] = 10.
-    int_params['max_step'] = 1000.
-    int_params['min_step'] = 1e-3
-    int_params['rtol'] = 1e-12
-    int_params['atol'] = 1e-12
-    
-    
-    start = time.time()
-    T_list, rho_list = compute_TCA(X1, X2, trange, rso1_params, rso2_params, 
-                                   int_params, bodies)
-    
+    return X
 
-    print('')
-    print('RK78 TCA unit test runtime [seconds]:', time.time() - start)
-    print('RK78 TCA error [seconds]:', T_list[0]-TCA_true)
-    print('RK78 miss distance error [m]:', rho_list[0]-rho_true)
+
+def hill2elemdiff(X, kep_c, GM=GME):
+    '''
+    This function transforms relative orbit parameters from Cartesian 
+    coordinates in the rotating Hill frame to orbit element differences.
     
+    Parameters
+    ------
+    X : 6 element array or list
+        relative orbit positions and velocities in rotatinng Hill frame 
+        [m, m/s]    
+        
+    kep_c : 6 element array or list
+        Keplerian orbit elements of chief [a, e, i, RAAN, w, true_anom]
+        [m, rad]    
+    
+    Returns
+    ------
+    delta_elem : 6 element array 
+        orbit element differences [da, dtrue_lat, di, dq1, dq2, dRAAN]
+        [m, rad]
+    
+    References
+    ------
+    [1] Schaub and Junkins, "Analytical Mechanics of Space Systems," 2nd ed.,
+        2009. 
+        
+    '''
+    
+    # Retrieve input orbit elements
+    kep = np.reshape(kep_c, (6,))
+    a = float(kep[0])
+    e = float(kep[1])
+    i = float(kep[2])
+    RAAN = float(kep[3])
+    w = float(kep[4])
+    true_anom = float(kep[5])
+    
+    # Compute non-singular elements (Eq 14.42-14.44)
+    true_lat = w + true_anom
+    q1 = e*np.cos(w)
+    q2 = e*np.sin(w)
+    
+    # Compute orbit radius (Eq 14.56)
+    r = a*(1. - q1**2. - q2**2.)/(1. + q1*np.cos(true_lat) + q2*np.sin(true_lat))
+    
+    # Compute radial and tangential velocity (Eq 14.58-14.59)
+    p = a*(1. - e**2.)
+    h = np.sqrt(GM*p)
+    Vr = (h/p)*(q1*np.sin(true_lat) - q2*np.cos(true_lat))
+    Vt = (h/p)*(1. + q1*np.cos(true_lat) + q2*np.sin(true_lat))
+    
+    # Compute nondimensional parameters (Eq G.1-G.5)
+    alpha = a/r
+    v = Vr/Vt
+    rho = r/p
+    kappa1 = alpha*((1./rho) - 1.)
+    kappa2 = alpha*v**2.*(1./rho)
+    
+    # Transformation matrix (Eq G.6)
+    A = np.zeros((6,6))
+    A[0,0] =  2.*alpha*(2. + 3.*kappa1 + 2.*kappa2)
+    A[0,1] = -2.*alpha*v*(1. + 2.*kappa1 + kappa2)
+    A[0,3] =  2.*alpha**2.*v*p/Vt
+    A[0,4] =  2.*(a/Vt)*(1. + 2.*kappa1 + kappa2)
+    A[1,1] =  1./r
+    A[1,2] =  1./(r*np.tan(i))*(np.cos(true_lat) + v*np.sin(true_lat))
+    A[1,5] = -(np.sin(true_lat)/(Vt*np.tan(i)))
+    A[2,2] =  (np.sin(true_lat) - v*np.cos(true_lat))/r
+    A[2,5] =  np.cos(true_lat)/Vt
+    A[3,0] =  (1./(rho*r))*(3.*np.cos(true_lat) + 2.*v*np.sin(true_lat))
+    A[3,1] = -(1./r)*((v**2.*np.sin(true_lat)/rho) + q1*np.sin(2.*true_lat) - q2*np.cos(2.*true_lat))
+    A[3,2] = -(q2/(r*np.tan(i)))*(np.cos(true_lat) + v*np.sin(true_lat))
+    A[3,3] =  np.sin(true_lat)/(rho*Vt)
+    A[3,4] =  (1./(rho*Vt))*(2.*np.cos(true_lat) + v*np.sin(true_lat))
+    A[3,5] =  q2*np.sin(true_lat)/(Vt*np.tan(i))
+    A[4,0] =  (1./(rho*r))*(3.*np.sin(true_lat) - 2.*v*np.cos(true_lat))
+    A[4,1] =  (1./r)*((v**2.*np.cos(true_lat)/rho) + q2*np.sin(2.*true_lat) + q1*np.cos(2.*true_lat))
+    A[4,2] =  (q1/(r*np.tan(i)))*(np.cos(true_lat) + v*np.sin(true_lat))
+    A[4,3] = -np.cos(true_lat)/(rho*Vt)
+    A[4,4] =  (1./(rho*Vt))*(2.*np.sin(true_lat) - v*np.cos(true_lat))
+    A[4,5] = -q1*np.sin(true_lat)/(Vt*np.tan(i))
+    A[5,2] = -(np.cos(true_lat) + v*np.sin(true_lat))/(r*np.sin(i))
+    A[5,5] =  np.sin(true_lat)/(Vt*np.sin(i))
+    
+    # Compute output
+    X = np.reshape(X, (6,1))
+    delta_elem = np.dot(A, X).flatten()    
+    
+    return delta_elem
+
+
+def unit_test_relative_elem():
+    
+    kep = [7000000., 0.001, np.radians(98.), np.radians(10.), np.radians(20.), np.radians(30.)]
+    
+    X = [100., 200., 300., 1., 2., 3.]
+    
+    delta_elem = hill2elemdiff(X, kep)
+    X2 = elemdiff2hill(delta_elem, kep)
+    
+    print(delta_elem)
+    print(X2)
     
     
     return
@@ -2141,6 +2340,8 @@ if __name__ == '__main__':
     
     # unit_test_tca()
     
-    cdm_dir = r'data\cdm'
-    fname = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
-    read_cdm_file(fname)
+    # cdm_dir = r'data\cdm'
+    # fname = os.path.join(cdm_dir, '2024-09-13--00--31698-36605.1726187583000.cdm')
+    # read_cdm_file(fname)
+    
+    unit_test_relative_elem()
