@@ -2254,6 +2254,8 @@ def hill2elemdiff(X, kep_c, GM=GME):
     [1] Schaub and Junkins, "Analytical Mechanics of Space Systems," 2nd ed.,
         2009. 
         
+    [2] https://www.hanspeterschaub.info/Papers/errata3.pdf
+        
     '''
     
     # Retrieve input orbit elements
@@ -2287,6 +2289,8 @@ def hill2elemdiff(X, kep_c, GM=GME):
     kappa2 = alpha*v**2.*(1./rho)
     
     # Transformation matrix (Eq G.6)
+    # Note that the textbook [1] has several typos for terms with r and rho
+    # Refer to the errata [2] for correct versions of the equations
     A = np.zeros((6,6))
     A[0,0] =  2.*alpha*(2. + 3.*kappa1 + 2.*kappa2)
     A[0,1] = -2.*alpha*v*(1. + 2.*kappa1 + kappa2)

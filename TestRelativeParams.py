@@ -52,12 +52,12 @@ def test_damico_tsx_tdx(datafile):
     
     # Orbit Differences
     di_x = 0.
-    di_y = -1000./a             # rad
+    di_y = -40./a             # rad
     di = 0.                     # rad
     dRAAN = (di_y/np.sin(i))    # rad
     
     de_x = 0.
-    de_y = 300./a                       # non-dim
+    de_y = 30./a                       # non-dim
     de = np.linalg.norm([de_x, de_y])   # non-dim
     
     # Compute initial relative angles (vector coordinates in Orbit Frame 1)
