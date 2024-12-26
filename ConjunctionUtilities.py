@@ -754,6 +754,39 @@ def propagate_all_states(TDB_epoch, state_dict, obj_params, step=30., bodies=Non
     return output_dict
 
 
+def initialize_impactor(X1, rho_ric, drho_ric):
+    '''
+    This function determines the inertial state vector for an impactor given the
+    initial state of the primary object and desired relative position and velocity
+    in the radial/intrack/crosstrack frame at time of closest approach (TCA).
+
+    Parameters
+    ------
+    X1 : 6x1 numpy array
+        state vector of primary object in ECI [m, m/s]
+    rho_ric : 3x1 numpy array
+        relative position vector of impactor in RIC [m]
+    drho_ric : 3x1 numpy array
+        relative velocity vector of impactor in RIC [m/s]
+
+    Returns
+    ------
+    X2 : 6x1 numpy array
+        state vector of impactor in ECI [m, m/s]
+
+    '''
+
+    rc_vect = X1[0:3].reshape(3,1)
+    vc_vect = X1[3:6].reshape(3,1)
+
+    rho_eci = ric2eci(rc_vect, vc_vect, rho_ric)
+    drho_eci = ric2eci_vel(rc_vect, vc_vect, rho_ric, drho_ric)
+    r_eci = rc_vect + rho_eci
+    v_eci = vc_vect + drho_eci
+
+    X2 = np.concatenate((r_eci, v_eci), axis=0)
+
+    return X2
 
 
 
