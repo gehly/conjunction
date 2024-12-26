@@ -664,6 +664,100 @@ def tle2eci(tle_dict):
 ###############################################################################
 
 
+def propagate_all_states(TDB_epoch, state_dict, obj_params, step=30., bodies=None):
+    '''
+    This function propagates all state vectors in the input dictionary to a 
+    common epoch. If the input dictionary contains multiple state vectors
+    for a single object, the function will retrieve the one closest to the
+    desired output epoch.
+
+    Parameters
+    ------
+    TDB_epoch : float
+        time in seconds since J2000 TDB
+
+    state_dict : dictionary
+        indexed by object ID, each item has cartesian states in J2000 [m, m/s] 
+        and time in TDB
+
+    obj_params : dictionary
+        propagator parameters, indexed by object ID as needed
+        
+        fields:
+            Cd: float, drag coefficient
+            Cr: float, reflectivity coefficient
+            area: float [m^2]
+            mass: float [kg]
+            sph_deg: int, spherical harmonics expansion degree for Earth
+            sph_ord: int, spherical harmonics expansion order for Earth
+            central_bodies: list of central bodies for propagator ["Earth"]
+            bodies_to_create: list of bodies to create ["Earth", "Sun", "Moon"]
+
+    step : float, optional
+        fixed step size in seconds for numerical integrator (default=30.)
+
+    Returns
+    ------
+    output_dict : dictionary
+        indexed by object ID, provides TDB epoch (seconds since J2000) and 
+        cartesian state vector in J2000 coordinate frame [m, m/s]
+
+    '''
+
+    # Initialize 
+    output_dict = {}
+
+    # Integrator parameters
+    int_params = {}
+    int_params['tudat_integrator'] = 'rkdp87'    
+    int_params['rtol'] = np.inf
+    int_params['atol'] = np.inf
+
+    # Loop over objects
+    for obj_id in state_dict:
+
+        # Find closest time to desired epoch
+        TDB_list = state_dict[obj_id]['TDB_list']
+        diff = [abs(TDB - TDB_epoch) for TDB in TDB_list]
+        ind = diff.index(min(diff))
+
+        # Set up numerical integration
+        Xo = state_dict[obj_id]['X_list'][ind]
+        tvec = np.array([TDB_list[ind], TDB_epoch])
+        state_params = obj_params[obj_id]
+
+        # Backprop if needed
+        if tvec[1] < tvec[0]:
+            int_params['step'] = -step
+            int_params['max_step'] = -step
+            int_params['min_step'] = -step
+        else:
+            int_params['step'] = step
+            int_params['max_step'] = step
+            int_params['min_step'] = step
+
+        tout, Xout = prop.propagate_orbit(Xo, tvec, state_params, int_params, bodies)
+
+        if tvec[1] < tvec[0]:
+            TDB = tout[0]
+            X = Xout[0,:].reshape(6,1)
+        else:
+            TDB = tout[-1]
+            X = Xout[-1,:].reshape(6,1)
+
+        # Store output
+        output_dict[obj_id] = {}
+        output_dict[obj_id]['TDB_epoch'] = TDB
+        output_dict[obj_id]['X'] = X
+
+
+    return output_dict
+
+
+
+
+
+
 def perturb_state_vector(Xo, P):
     
     pert_vect = np.multiply(np.sqrt(np.diag(P)), np.random.randn(6,))
