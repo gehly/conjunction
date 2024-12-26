@@ -40,7 +40,6 @@
 
 import numpy as np
 import math
-from datetime import datetime
 from scipy.integrate import dblquad
 from scipy.special import erfcinv
 import pickle
@@ -48,23 +47,28 @@ import time
 import pandas as pd
 import os
 import sys
+from datetime import datetime, timedelta
+import requests
+import getpass
+import copy
 
 from tudatpy.astro import time_conversion
+from tudatpy.numerical_simulation import environment
 
 import TudatPropagator as prop
 
-metis_dir = r'C:\Users\sgehly\Documents\code\metis'
-sys.path.append(metis_dir)
+#metis_dir = r'C:\Users\sgehly\Documents\code\metis'
+#sys.path.append(metis_dir)
 
 # import estimation.analysis_functions as analysis
-import estimation.estimation_functions as est
-import dynamics.dynamics_functions as dyn
-import sensors.measurement_functions as mfunc
+# import estimation.estimation_functions as est
+# import dynamics.dynamics_functions as dyn
+# import sensors.measurement_functions as mfunc
 # import sensors.sensors as sens
 # import sensors.visibility_functions as visfunc
 # from utilities import astrodynamics as astro
 # from utilities import coordinate_systems as coord
-from utilities import eop_functions as eop
+# from utilities import eop_functions as eop
 # from utilities import time_systems as timesys
 # from utilities import tle_functions as tle
 # from utilities.constants import GME
@@ -95,7 +99,7 @@ def read_catalog_file(rso_file):
     rso_dict : dictionary
         RSO data indexed by 5 digit NORAD ID
         The following data are provided for each object:
-            UTC : datetime object corresponding to state and covar 
+            TDB : datetime object corresponding to state and covar 
             state : 6x1 numpy array, Cartesian position and velocity in ECI 
             covar : 6x6 numpy array, covariance matrix associated with state
             mass : float [kg]
@@ -418,6 +422,242 @@ def retrieve_conjunction_data_at_tca(cdm_file=''):
     
     return TCA_epoch_tdb, X1, X2
 
+
+###############################################################################
+# Two-Line Element Data
+###############################################################################
+
+def get_spacetrack_tle_data(obj_id_list = [], UTC_list = [], username='',
+                            password=''):
+    '''
+    This function retrieves the two-line element (TLE) data for objects
+    in the input list from space-track.org.
+
+    Parameters
+    ------
+    obj_id_list : list, optional
+        object NORAD IDs (int)
+        - if empty code will retrieve latest available for entire catalog 
+          (TLE epochs within last 30 days only)
+    UTC_list : list, optional
+        UTC datetime objects to specify desired times for TLEs to retrieve
+        - if empty code will retrieve latest available
+        - if 1 entry, code will retrieve all TLEs in the +/- 2 day window
+        - if 2 entries, code will retrieve all TLEs between first and second time
+          (default = empty)
+    username : string, optional
+        space-track.org username (code will prompt for input if not supplied)
+    password : string, optional
+        space-track.org password (code will prompt for input if not supplied)
+
+    Returns
+    ------
+    tle_dict : dictionary
+        indexed by object ID, each item has two lists of strings for each line
+    '''
+        
+    tle_dict = {}
+    tle_df = []
+    UTC_list = copy.copy(UTC_list)
+    
+
+    if len(username) == 0:
+        username = input('space-track username: ')
+    if len(password) == 0:
+        password = getpass.getpass('space-track password: ')
+
+    if len(obj_id_list) >= 1:
+        myString = ",".join(map(str, obj_id_list))
+
+        # If only one time is given, add second to produce window
+        if len(UTC_list) ==  1:
+            UTC_list.append(UTC_list[0] + timedelta(days=3.))
+            UTC_list[0] = UTC_list[0] - timedelta(days=3.)
+
+        # If times are specified, retrieve from window
+        if len(UTC_list) >= 2:
+                        
+            # Create expanded window
+            UTC_list[0] = UTC_list[0] 
+            UTC_list[-1] = UTC_list[-1] 
+            
+            UTC0 = UTC_list[0].strftime('%Y-%m-%d')
+            UTC1 = UTC_list[-1].strftime('%Y-%m-%d')
+            pageData = ('//www.space-track.org/basicspacedata/query/class/' +
+                        'gp_history/NORAD_CAT_ID/' + myString + '/orderby/' +
+                        'TLE_LINE1 ASC/EPOCH/' + UTC0 + '--' + UTC1 + 
+                        '/format/tle')
+            
+        
+
+        # Otherwise, get latest available
+        else:
+            pageData = ('//www.space-track.org/basicspacedata/query/class/gp/'
+                        'NORAD_CAT_ID/' + myString +
+                        '/orderby/NORAD_CAT_ID/format/tle')
+
+    ST_URL='https://www.space-track.org'
+
+    with requests.Session() as s:
+        s.post(ST_URL+"/ajaxauth/login", json={'identity':username, 'password':password})
+        r = s.get('https:' + pageData)
+        if r.status_code == requests.codes.ok:
+                        
+            # Parse response and form output
+            tle_list = []
+            nchar = 69
+            nskip = 2
+            ntle = int(round(len(r.text)/142.))
+            for ii in range(ntle):
+        
+                line1_start = ii*2*(nchar+nskip)
+                line1_stop = ii*2*(nchar+nskip) + nchar
+                line2_start = ii*2*(nchar+nskip) + nchar + nskip
+                line2_stop = ii*2*(nchar+nskip) + 2*nchar + nskip
+                line1 = r.text[line1_start:line1_stop]
+                line2 = r.text[line2_start:line2_stop]
+                UTC = tletime2datetime(line1)
+        
+                try:
+                    obj_id = int(line1[2:7])
+                except:
+                    continue
+        
+                if obj_id not in tle_dict:
+                    tle_dict[obj_id] = {}
+                    tle_dict[obj_id]['UTC_list'] = []
+                    tle_dict[obj_id]['line1_list'] = []
+                    tle_dict[obj_id]['line2_list'] = []
+        
+                tle_dict[obj_id]['UTC_list'].append(UTC)
+                tle_dict[obj_id]['line1_list'].append(line1)
+                tle_dict[obj_id]['line2_list'].append(line2)
+        
+                linelist = [obj_id,line1,line2,UTC]
+                tle_list.append(linelist)            
+            
+        else:
+            print("Error: Page data request failed.")
+
+    return tle_dict
+
+
+def tletime2datetime(line1):
+    '''
+    This function computes a UTC datetime object from the TLE line1 input year,
+    day of year, and fractional day.
+
+    Parameters
+    ------
+    line1 : string
+        first line of TLE, contains day of year and fractional day
+
+    Returns
+    ------
+    UTC : datetime object
+        UTC datetime object
+
+    Reference
+    ------
+    https://celestrak.com/columns/v04n03/#FAQ03
+
+    While talking about the epoch, this is perhaps a good place to answer the
+    other time-related questions. First, how is the epoch time format
+    interpreted? This question is best answered by using an example. An epoch
+    of 98001.00000000 corresponds to 0000 UT on 1998 January 01—in other words,
+    midnight between 1997 December 31 and 1998 January 01. An epoch of
+    98000.00000000 would actually correspond to the beginning of
+    1997 December 31—strange as that might seem. Note that the epoch day starts
+    at UT midnight (not noon) and that all times are measured mean solar rather
+    than sidereal time units (the answer to our third question).
+
+    '''
+
+    # Get 2 digit year and day of year
+    year2 = line1[18:20]
+    doy = float(line1[20:32])
+
+    # Compute century and add to year
+    if int(year2) < 50.:
+        year = int('20' + year2)
+    else:
+        year = int('19' + year2)
+
+    # Need to subtract 1 from day of year to add to this base datetime
+    # In TLE definition doy = 001.000 for Jan 1 Midnight UTC
+    base = datetime(year, 1, 1, 0, 0, 0)
+    UTC = base + timedelta(days=(doy-1.))
+
+    # Compute day of year to check
+    doy = UTC.timetuple().tm_yday
+
+    return UTC
+
+
+def tle2eci(tle_dict):
+    '''
+    This function reads data from the TLE dictionary and converts state vectors
+    from TLE to J2000 ECI cartesian. The TLE time is converted from UTC to TDB.
+
+    Parameters
+    ------
+    tle_dict : dictionary
+        indexed by object ID, each item has two lists of strings for each line
+
+    Returns
+    ------
+    state_dict : dictionary
+        indexed by object ID, each item has cartesian states in J2000 [m, m/s] 
+        and time in TDB
+
+    '''
+
+    # Initialize
+    state_dict = {}
+    time_scale_converter = time_conversion.default_time_scale_converter()
+
+    # Loop over objects
+    for obj_id in tle_dict:
+        UTC_list = tle_dict['UTC_list']
+        line1_list = tle_dict['line1_list']
+        line2_list = tle_dict['line2_list']
+
+        # Loop over entries
+        TDB_list = []
+        X_list = []
+        for ii in range(len(UTC_list)):
+            UTC_dt = UTC_list[ii]
+            line1 = line1_list[ii]
+            line2 = line2_list[ii]
+
+            # Convert time to TDB epoch (seconds since J2000)            
+            UTC_epoch = time_conversion.datetime_to_tudat(UTC_dt).epoch()
+            TDB_epoch = time_scale_converter.convert_time(
+                input_scale = time_conversion.utc_scale,
+                output_scale = time_conversion.tdb_scale,
+                input_value = UTC_epoch)
+            
+            # Convert TLE to J2000 ECI
+            tle = environment.Tle(line1, line2)
+            ephemeris = environment.TleEphemeris("Earth", "J2000", tle, False)
+
+            #TODO: The current version of tudat does not convert between UTC and TDB 
+            # when reading the TLE data. To retrieve the TLE at the current time stamp
+            # with no propagation, use the UTC epoch. This should be updated to
+            # TDB epoch when is updated, as of version ___
+            X = ephemeris.cartesian_state(UTC_epoch)
+
+            # Store output
+            TDB_list.append(TDB_epoch)
+            X_list.append(X)
+
+        # Store output
+        state_dict[obj_id] = {}
+        state_dict[obj_id]['TDB_list'] = TDB_list
+        state_dict[obj_id]['X_list'] = X_list
+
+
+    return state_dict
 
 ###############################################################################
 # Initialize Parameters

@@ -587,11 +587,11 @@ if __name__ == '__main__':
     
     plt.close('all')
     
-    # unit_test_forward_backprop()
+    unit_test_forward_backprop()
     
     # unit_test_initialize_covar()
 
-    unit_test_relative_ei_vector()
+    # unit_test_relative_ei_vector()
     
 
 
