@@ -51,6 +51,7 @@ from datetime import datetime, timedelta
 import requests
 import getpass
 import copy
+import csv
 
 from tudatpy.astro import time_conversion
 from tudatpy.numerical_simulation import environment
@@ -421,6 +422,91 @@ def retrieve_conjunction_data_at_tca(cdm_file=''):
         
     
     return TCA_epoch_tdb, X1, X2
+
+
+def read_conjunction_data_file(conjunction_data_file):
+    '''
+    This function reads a CSV file containing data for conjunction parameters
+    including relative miss distances and velocities and physical object data
+
+    Parameters
+    ------
+    conjunction_data_file : string
+        path and filename of CSV file containing conjunction data
+
+    Returns
+    ------
+    obj_params : dictionary
+        propagator parameters, indexed by object ID as needed
+        
+        fields:
+            Cd: float, drag coefficient
+            Cr: float, reflectivity coefficient
+            area: float [m^2]
+            mass: float [kg]
+            sph_deg: int, spherical harmonics expansion degree for Earth
+            sph_ord: int, spherical harmonics expansion order for Earth
+            central_bodies: list of central bodies for propagator ["Earth"]
+            bodies_to_create: list of bodies to create ["Earth", "Sun", "Moon"]
+
+    conj_params : dictionary
+        conjunction parameters, indexed by case id
+    
+    '''
+    
+    # Default parameters
+    bodies_to_create = ['Earth', 'Sun', 'Moon']
+    central_bodies = ['Earth']
+    sph_deg = 20
+    sph_ord = 20
+
+    # Initialize
+    obj_params = {}
+    conj_params = {}
+
+    # Read data from csv file
+    with open(conjunction_data_file, newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+
+        for row in reader:
+            case_id = int(row['CASE'])
+            primary = int(row['PRIMARY'])
+            impactor = int(row['IMPACTOR'])
+            if primary not in obj_params:
+                obj_params[primary] = {}
+                obj_params[primary]['area_list'] = [float(row['PRI_AREA'])]
+                obj_params[primary]['mass_list'] = [float(row['PRI_MASS'])]
+                obj_params[primary]['Cd_list'] = [float(row['PRI_CD'])]
+                obj_params[primary]['Cr_list'] = [float(row['PRI_CR'])]
+                obj_params[primary]['central_bodies'] = central_bodies
+                obj_params[primary]['bodies_to_create'] = bodies_to_create
+                obj_params[primary]['sph_deg'] = sph_deg
+                obj_params[primary]['sph_ord'] = sph_ord
+
+            if impactor not in obj_params:
+                obj_params[impactor] = {}
+                obj_params[impactor]['area_list'] = [float(row['IMP_AREA'])]
+                obj_params[impactor]['mass_list'] = [float(row['IMP_MASS'])]
+                obj_params[impactor]['Cd_list'] = [float(row['IMP_CD'])]
+                obj_params[impactor]['Cr_list'] = [float(row['IMP_CR'])]
+                obj_params[impactor]['central_bodies'] = central_bodies
+                obj_params[impactor]['bodies_to_create'] = bodies_to_create
+                obj_params[impactor]['sph_deg'] = sph_deg
+                obj_params[impactor]['sph_ord'] = sph_ord
+
+            conj_params[case_id] = {}
+            conj_params[case_id]['primary'] = primary
+            conj_params[case_id]['impactor'] = impactor
+            conj_params[case_id]['TCA_hrs'] = float(row['TCA_HRS'])
+            conj_params[case_id]['rho_ric'] = np.array([float(row['R']),
+                                                        float(row['T']),
+                                                        float(row['N'])]).reshape(3,1)
+            conj_params[case_id]['rdho_ric'] = np.array([float(row['VR']),
+                                                         float(row['VT']),
+                                                         float(row['VN'])]).reshape(3,1)
+
+
+    return obj_params, conj_params
 
 
 ###############################################################################
