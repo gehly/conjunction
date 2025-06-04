@@ -1364,6 +1364,153 @@ def remediate_covariance(Praw, Lclip, Lraw=[], Vraw=[]):
 
 
 ###############################################################################
+# 2D Outer Probability Measure (OPM) Functions
+###############################################################################
+
+def Uc2D(X1, P1, X2, P2, HBR):
+    '''
+    This function computes the outer probability measure (Uc) in the 2D 
+    encounter plane. The input covariance may be either 3x3 or 6x6, but only 
+    the 3x3 position covariance will be used in the calculation of Uc.
+    
+    
+    Parameters
+    ------
+    X1 : 6x1 numpy array
+        Estimated mean state vector
+        Cartesian position and velocity of Object 1 in ECI [m, m/s]
+    P1 : 6x6 numpy array
+        Estimated covariance of Object 1 in ECI [m^2, m^2/s^2]
+    X2 : 6x1 numpy array
+        Estimated mean state vector
+        Cartesian position and velocity of Object 2 in ECI [m, m/s]
+    P2 : 6x6 numpy array
+        Estimated covariance of Object 2 in ECI [m^2, m^2/s^2]
+    HBR : float
+        hard-body region (e.g. radius for spherical object) [m]
+    
+    Returns
+    ------
+    Pc : float
+        probability of collision
+    
+    '''
+    
+    # Retrieve and combine the position covariance
+    Peci = P1[0:3,0:3] + P2[0:3,0:3]
+    
+    # Construct the relative encounter frame
+    r1 = np.reshape(X1[0:3], (3,1))
+    v1 = np.reshape(X1[3:6], (3,1))
+    r2 = np.reshape(X2[0:3], (3,1))
+    v2 = np.reshape(X2[3:6], (3,1))
+    r = r1 - r2
+    v = v1 - v2
+    h = np.cross(r, v, axis=0)
+    
+    # Degenerate case: if norm(r) < HBR the possibility Uc = 1.0
+    MD = np.linalg.norm(r)
+    if MD < HBR:
+        return 1.0, 1.0
+    
+    # Unit vectors of relative encounter frame
+    yhat = v/np.linalg.norm(v)
+    zhat = h/np.linalg.norm(h)
+    xhat = np.cross(yhat, zhat, axis=0)
+    
+    # Transformation matrix
+    eci2xyz = np.concatenate((xhat.T, yhat.T, zhat.T))
+    
+    # Transform combined covariance to relative encounter frame (xyz)
+    Pxyz = np.dot(eci2xyz, np.dot(Peci, eci2xyz.T))
+    
+    # 2D Projected covariance on the x-z plane of the relative encounter frame
+    red = np.array([[1., 0., 0.], [0., 0., 1.]])
+    Pxz = np.dot(red, np.dot(Pxyz, red.T))
+
+    # Exception Handling
+    # Remediate non-positive definite covariances
+    Lclip = (1e-4*HBR)**2.
+    Pxz_rem, Pxz_det, Pxz_inv, posdef_status, clip_status = remediate_covariance(Pxz, Lclip)
+    
+    # Setup and solve set of equations
+    params = {}
+    params['HBR'] = HBR
+    params['MD'] = MD
+    params['Pinv'] = Pxz_inv
+
+    root = fsolve(mahalanobis_opm, [MD, 0., 0.], args=(params))
+
+    # Compute Uc (Delande Eq 6)
+    x = float(root[0])
+    z = float(root[1])
+    diff = np.array([[x - MD], [z]])
+    dM = float(np.dot(diff.T, np.dot(Pxz_inv, diff))[0,0])
+    Uc = np.exp(-0.5*dM)    
+    
+    
+    # Check - use particles to compute Uc
+    Uc_check = 0.
+    N = 10000
+    for ii in range(N):
+        theta = float(ii)/N
+        xi = HBR*np.cos(theta*2*np.pi)
+        zi = HBR*np.sin(theta*2*np.pi)
+        diff = np.array([[xi - MD], [zi]])
+        dM = float(np.dot(diff.T, np.dot(Pxz_inv, diff))[0,0])
+        Uci = np.exp(-0.5*dM)   
+        if Uci > Uc_check:
+            Uc_check = float(Uci)
+            
+    
+    return Uc, Uc_check
+
+
+def mahalanobis_opm(x, params):
+    '''
+    This function is used in fsolve to find the point on the HBR circle that
+    yields the minimum Mahalanobis distance. This corresponds to the maximum
+    of the Gaussian possibility function.
+    
+    The minimum Mahalanobis distance is found by incorporating a Lagrange
+    multiplier lambda into the objective function, yielding a set of 3 
+    equations and 3 unknowns.
+    
+    F = p11*(x-MD)^2 + 2*p12*(x-MD)*z + p22*z^2 + lambda*(x^2 + z^2 - HBR^2)
+    
+    x^2 + z^2 - HBR^2 = 0
+    2*p11*(x-MD) + 2*p12*z + 2*lambda*x = 0
+    2*p22*z + 2*p12*(x-MD) + 2*lambda*z = 0
+
+    Parameters
+    ------
+    x : list
+        coordinates in the encounter plane and Lagrange multiplier used for
+        minimization [x, z, lambda]
+    params : dictionary
+        contains inverse of covariance matrix in encounter plane, miss 
+        distance, and hardbody radius
+        
+    Returns
+    ------
+    list of equations equal to zero, to be solved by fsolve
+    
+    '''
+    
+    Pinv = params['Pinv']
+    HBR = params['HBR']
+    MD = params['MD']
+    
+    p11 = float(Pinv[0,0])
+    p12 = float(Pinv[0,1])
+    p22 = float(Pinv[1,1])
+    
+    return [x[0]**2. + x[1]**2. - HBR**2.,
+            2.*p11*(x[0] - MD) + 2.*p12*x[1] + 2.*x[0]*x[2],
+            2.*p22*x[1] + 2.*p12*(x[0] - MD) + 2.*x[1]*x[2]]
+
+
+###############################################################################
 # Time of Closest Approach (TCA) Calculation
 ###############################################################################
 
@@ -2787,6 +2934,80 @@ def unit_test_relative_elem():
     
     print(delta_elem)
     print(X2)
+    
+    
+    return
+
+
+def unit_test_opm():
+    '''
+    Unit test from Delande et al. [7] which uses data from Alfano 2009 [6]
+    Test Case 1.
+    
+    '''
+    
+#     r1_eci = np.reshape([153446.7645602800, 41874155.8695660000, 0.0000000000], (3,1))
+#     v1_eci = np.reshape([3066.8747609105, -11.3736149565, 0.0000000000], (3,1))
+#     r2_eci = np.reshape([153447.2642029000, 41874156.3699030000, 4.9999660258], (3,1))
+#     v2_eci = np.reshape([3066.8647607073, -11.3636148179, -0.0000013581], (3,1))
+    
+#     P1 = np.array([[6494.0796232671000000000000, -376.1385833452400000000000, 0.0000000000000000000000, 0.0159894841672130000000, -0.4942616773297700000000, 0.0000000000000000000000],
+#                    [-376.1385833452400000000000, 22.5594651948940000000000, 0.0000000000000000000000, -0.0009883140442375300000, 0.0285694605771430000000, 0.0000000000000000000000],
+# 0.0000000000000000000000	0.0000000000000000000000	1.2050395223076000000000	0.0000000000000000000000	0.0000000000000000000000	-0.0000607087634449250000
+# 0.0159894841672130000000	-0.0009883140442375300000	0.0000000000000000000000	0.0000000443727501925020	-0.0000012122341939459000	0.0000000000000000000000
+# -0.4942616773297700000000	0.0285694605771430000000	0.0000000000000000000000	-0.0000012122341939459000	0.0000376229760367290000	0.0000000000000000000000
+# 0.0000000000000000000000	0.0000000000000000000000	-0.0000607087634449250000	0.0000000000000000000000	0.0000000000000000000000	0.0000000033903900107678
+# ])
+    
+    cdm_file = os.path.join('input', 'AlfanoTestCase01.cdm')
+    cdm_data = read_cdm_file(cdm_file)
+    
+    # print(cdm_data)
+    
+    X1 = cdm_data['obj1']['X']
+    P1 = cdm_data['obj1']['P']
+    X2 = cdm_data['obj2']['X']
+    P2 = cdm_data['obj2']['P']
+    
+    # HBR = 15.
+    HBR = 2.
+    
+    # Expected solution for Pc = 1.46749549E-01
+    Pc = Pc2D_Foster(X1, P1, X2, P2, HBR, rtol=1e-8, HBR_type='circle')
+    
+    Uc, Uc_check = Uc2D(X1, P1, X2, P2, HBR)
+    
+    print('')
+    print(Pc)
+    print(Uc)
+    print(Uc_check)
+    
+    # mistake
+    
+    # Scale factors for covariances
+    scale_factors = np.logspace(-2, 12, 25)
+    Pc_list = []
+    Uc_list = []
+    Uc_check_list = []
+    for scale in scale_factors:
+        P1_ii = scale*P1
+        P2_ii = scale*P2
+        
+        Pc_ii = Pc2D_Foster(X1, P1_ii, X2, P2_ii, HBR, rtol=1e-8, HBR_type='circle')
+        
+        Uc_ii, Uc_check_ii = Uc2D(X1, P1_ii, X2, P2_ii, HBR)
+        
+        Pc_list.append(Pc_ii)
+        Uc_list.append(Uc_ii)
+        Uc_check_list.append(Uc_check_ii)
+        
+    
+    plt.figure()
+    plt.loglog(scale_factors, Pc_list, 'bo-')
+    plt.loglog(scale_factors, Uc_list, 'ro-')
+    plt.loglog(scale_factors, Uc_check_list, 'go-')
+    
+    plt.show()
     
     
     return
